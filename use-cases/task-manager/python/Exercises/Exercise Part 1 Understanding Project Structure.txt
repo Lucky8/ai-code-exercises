@@ -1,0 +1,48 @@
+2. Initial understanding: 
+
+Best Gusess: app.py controls the flow of the application, cli.py interacts with the user to records tasks, models.py organises tasks according to priority and status, storage.py is the memory element of the application.
+
+Technologies and frameworks: Python, JSON
+
+Main components: an interactive cli where tasks are recorded, Priority tracking, Task status tracking, Task memory/storage, Encoding & decoding.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+3. Apply the Project Structure Prompt
+
+Prompt Used: Understanding Project Structure and Technology Stack
+
+Prompt + own understanding: 
+
+I'm a junior developer who just joined this project. I've read the README but still need help understanding the project structure and technology stack.
+
+Here's my current understanding of the project:
+- It seems to be a task manager, where app.py controls the flow of the application, cli.py interacts with the user to records tasks, models.py organises tasks according to priority and status, storage.py is the memory element of the application.
+- It appears to use Python, JSON
+- The folder structure seems to follow an interactive cli where tasks are recorded, Priority tracking, Task status tracking, Task memory/storage, Encoding & decoding.
+
+Project structure:
+Please verify project structure for me
+
+Key configuration files:
+verify config files
+
+Could you:
+1. Validate my understanding and correct any misconceptions
+2. Identify additional key technologies, frameworks, and libraries used
+3. Explain what each main folder likely contains and its purpose
+4. Point out where the application entry points are located
+5. Suggest 3-5 specific questions I should ask my team to deepen my understanding
+
+
+After your explanation, could you suggest a small exploration exercise I could do to verify my understanding of the project structure?
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+4. Findings:
+
+- models.py does not organize tasks by priority or status. It defines what a task is and how an individual task behaves.
+- The local code confirms the four-module flow, with one important correction: models.py owns task state and domain rules, while storage.py owns persistence and JSON conversion; app.py is the service layer between CLI and storage. The expected task-manager README is not present at that path.
+
+- The primary Python entry point is: cli.py:169 ,app.py is not itself a command-line entry point. It exposes the TaskManager class for use by the CLI.
+- The repository is a multi-language exercise set: this task manager is replicated in Python, Java, and JavaScript, but the Python variant has no package manifest, dependency file, test suite, or framework configuration beside its source.
+- No third-party Python dependencies are declared. There is no configured Python packaging workflow. There is no visible test configuration for this implementation. Runtime configuration is currently limited to the default storage path, "tasks.json".
