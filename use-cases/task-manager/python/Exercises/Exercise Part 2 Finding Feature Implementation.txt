@@ -1,0 +1,58 @@
+2. Form a hypothesis:
+
+- I think task data export functionality might belong in storage.py
+- I searched the term "export" and was pointed to the javascript version of the project.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+3. Apply Feature Location Prompt:
+
+I need to work on the Task Export to CSV feature in this codebase, but I'm not sure where the code for this feature lives.
+
+My approach so far:
+- I've searched for keywords like "Export"
+- I looked in ai-code-exercises\use-cases\code-algorithms\javascript\TaskManager\app.js which seemed relevant
+- I think the feature might relate to ai-code-exercises\use-cases\task-manager\python\storage.py
+
+Project structure:
+app.py -> cli.py -> models.py -> storage.py
+
+Based on my search, these files might be relevant, but I'm not sure:
+app.py and storage.py
+
+Can you help me:
+1. Evaluate my search approach and suggest improvements
+2. Identify which files and directories most likely contain the implementation for this feature
+3. Suggest specific search terms or patterns that would be more effective
+4. Explain what parts of the feature might be located in different areas of the codebase
+5. Recommend a step-by-step investigation process to understand the complete feature flow
+
+Also, what questions could I ask myself as I'm exploring the code to ensure I'm on the right track? What specific patterns should I look for to confirm I've found all the relevant parts?
+
+After your guidance, could you give me a small challenge to test my understanding of how to navigate this feature's code?
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+4. Findings: 
+
+- A false positive was identified, The repository does not currently contain a Task Export to CSV implementation. Searches for export mostly match JavaScript module syntax.
+
+
+- Feature implementation:
+cli.py:
+    Add an export subcommand and parse the filename/status.
+
+app.py:
+    Add an export_tasks method that requests completed tasks and writes them.
+
+storage.py:
+    Reuse get_tasks_by_status(TaskStatus.DONE).
+
+CSV implementation:
+    Use the standard-library csv.DictWriter.
+
+Tags:
+    Join tags with a delimiter inside the single CSV field, while allowing
+    the CSV writer to quote the field if necessary.
+
+Tests:
+    Verify headers, completed-task filtering, and commas/quotes in task text.
+
