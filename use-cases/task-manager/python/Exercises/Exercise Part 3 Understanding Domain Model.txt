@@ -1,0 +1,150 @@
+2. Form initial understanding:
+
+Task: UID, Title, Description, Time, Priority, Status
+TaskStatus: TODO, IN_PROGRESS, REVIEW, DONE
+TaskPriority: LOW, MEDIUM, HIGH, URGENT
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+3. Apply the Domain Understanding Prompt: 
+
+I'd like you to act as a senior developer who deeply understands our codebase's domain model. I'm a junior developer trying to make sense of the business logic and domain concepts in this application.
+
+Here's what I've found in the codebase:
+classes (Task, TaskStatus, TaskPriority)
+
+Based on this code, my current understanding is:
+- The task class seems to be calling TaskPriority to assign a LOW, MEDIUM, HIGH, URGENT status based on a numeric value. And calling TaskStatus to assign a TODO, IN_PROGRESS, REVIEW, DONE value.
+
+
+Could you, as a senior developer:
+1. Validate my current understanding, correcting any misconceptions
+2. Help me recognize the core domain concepts represented in this code 
+3. Explain the relationships between these entities in business terms, not just technical relationships
+4. Clarify any domain-specific terminology or patterns I might be missing
+5. Help me connect these models to actual user-facing features or business processes
+
+Then, please ask me 3-5 questions that would test my understanding of this domain model. These should be questions that make me think about the business logic, not just the code syntax.
+
+Finally, suggest a simple diagram I could sketch to visualize these relationships that would help solidify my understanding.
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+4.  
+- Questions and Answers:
+Q:Can a task be both URGENT and IN_PROGRESS? What does each value tell the user?
+A:
+
+
+Q:Why is overdue calculated by is_overdue() instead of stored as a field on Task?
+A: 
+
+
+Q:What additional information is recorded when a task changes from IN_PROGRESS to DONE, and why might that information matter for reporting?
+A:
+
+
+Q:What would happen if a task has a due date in the past but its status is DONE? Should it appear in the overdue list according to the current business rule?
+A:
+
+
+Q:Should the application allow a task to move directly from TODO to DONE, or should it enforce a workflow? What would be the business reason for your choice?
+A:
+
+
+
+- entity-and-state diagram:
+                           has many
+                    +-------------------+
+                    |       Tag         |
+                    +-------------------+
+                              ^
+                              |
++-----------------------------+-----------------------------+
+|                           Task                            |
+|-----------------------------------------------------------|
+| id                                                        |
+| title                                                     |
+| description                                               |
+| due_date                                                  |
+| completed_at                                              |
++-----------------------------+-----------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
+       +-------------+                 +-------------+
+       |  Priority   |                 |   Status    |
+       |-------------|                 |-------------|
+       | LOW         |                 | TODO        |
+       | MEDIUM      |                 | IN_PROGRESS  |
+       | HIGH        |                 | REVIEW      |
+       | URGENT      |                 | DONE        |
+       +-------------+                 +-------------+
+
+- Glossary: 
+Task:	A piece of work that needs to be tracked. It has a title, description, priority, status, dates, tags, and a unique ID.
+
+Task ID:	A unique UUID assigned to each task. It allows users and the application to identify a specific task.
+
+Title:	The short name of the work item. It is required when creating a task.
+
+Description:	Optional additional detail explaining what the task involves.
+
+Priority:	The relative importance or urgency of a task. It can be LOW, MEDIUM, HIGH, or URGENT.
+
+Low priority:	Work with relatively little urgency or business impact. Represented by the value 1.
+
+Medium priority:	The default level of importance. Represented by the value 2.
+
+High priority:	Important work that should receive attention soon. Represented by the value 3.
+
+Urgent priority:	Work requiring immediate or near-immediate attention. Represented by the value 4.
+
+Status:	The current stage of a task in its workflow. It can be TODO, IN_PROGRESS, REVIEW, or DONE.
+
+TODO:	A task that has been created but work has not started.
+
+IN_PROGRESS:	A task currently being worked on.
+
+REVIEW:	A task whose work is ready to be checked, approved, or evaluated.
+
+DONE:	A completed task. When a task reaches this status, its completion time is recorded.
+
+Workflow:	The progression of a task through statuses, conceptually: TODO -> IN_PROGRESS -> REVIEW -> DONE.
+
+Due date:	The deadline by which a task should be completed. It is optional.
+
+Overdue:	A derived state meaning the due date has passed and the task is not DONE. It is calculated by is_overdue() rather than stored directly.
+
+Completed date:	The timestamp recorded when a task is marked as DONE. In the code, this is completed_at.
+
+Created date:	The timestamp recording when the task was first created.
+
+Updated date:	The timestamp recording the most recent modification to the task.
+
+Tag:	A flexible label used to categorize a task, such as bug, documentation, or onboarding. A task can have multiple tags.
+
+Task collection:	The set of tasks currently held by TaskStorage. Internally, tasks are kept in a dictionary indexed by task ID.
+
+Task storage:	The component responsible for loading, saving, finding, updating, and deleting tasks.
+
+Persistence:	Keeping tasks available after the program exits. This application persists them in a local tasks.json file.
+
+JSON:	The file format used for task persistence. Tasks are converted to JSON when saved and reconstructed when loaded.
+
+Encoder:	TaskEncoder converts Task objects, enums, and date values into JSON-compatible data.
+
+Decoder:	TaskDecoder reconstructs Task objects from JSON data.
+
+Enum:	A fixed collection of allowed values. TaskPriority and TaskStatus are both enums.
+
+Task manager:	The application/service layer represented by the TaskManager class. It coordinates task operations between the CLI, domain model, and storage.
+
+CLI:	Command-line interface. It allows users to create, list, update, inspect, tag, delete, and report on tasks.
+
+Filter:	A restriction used when listing tasks, such as status, priority, or overdue state.
+
+Statistics:	Summary information calculated from the task collection, including total tasks, counts by status and priority, overdue tasks, and tasks completed in the previous seven days.
+
+Repository-like storage:	A design role played by TaskStorage: it hides the details of how tasks are stored and provides methods for retrieving and changing them.
