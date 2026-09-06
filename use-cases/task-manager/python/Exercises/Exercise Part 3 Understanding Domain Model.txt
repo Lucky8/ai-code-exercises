@@ -33,23 +33,23 @@ Finally, suggest a simple diagram I could sketch to visualize these relationship
 4.  
 - Questions and Answers:
 Q:Can a task be both URGENT and IN_PROGRESS? What does each value tell the user?
-A:
+A: Yes, priority and status describe different aspects of the same task.
 
 
 Q:Why is overdue calculated by is_overdue() instead of stored as a field on Task?
-A: 
+A: Beacause it is  A computed variable or value that updates automatically whenever its source data changes.
 
 
 Q:What additional information is recorded when a task changes from IN_PROGRESS to DONE, and why might that information matter for reporting?
-A:
+A: The completed_at time and the updated_at time
 
 
 Q:What would happen if a task has a due date in the past but its status is DONE? Should it appear in the overdue list according to the current business rule?
-A:
+A: No
 
 
 Q:Should the application allow a task to move directly from TODO to DONE, or should it enforce a workflow? What would be the business reason for your choice?
-A:
+A: It depends on the business requirements.
 
 
 
