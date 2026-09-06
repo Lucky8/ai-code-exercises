@@ -1,0 +1,51 @@
+2. Planning:
+
+- models.py, app.py, storage.py, storage.py, cli.py 
+
+- Add ABANDONED to TaskStatus enum, Add a method to mark tasks as abandoned (similar to mark_as_done), Add helper method to check if a task is eligible for abandonment, dd a method to auto-abandon eligible task, Add a retrieval method for abandoned task, Add a command to trigger auto-abandonment.
+
+- Questions
+Business Logic Questions
+Timing of enforcement: Should this abandonment check run:
+
+Only when explicitly called via CLI (auto-abandon command)?
+Automatically on every task list/stats operation?
+On a scheduled timer (would require a background worker)?
+Priority threshold: You mentioned "high priority." Should URGENT also be protected, or should the rule be adjustable per priority level?
+
+Recovery: Can abandoned tasks be recovered to a different status, or is ABANDONED effectively terminal?
+
+Notification: Should users be notified when their tasks are auto-abandoned? Via CLI output, logs, or a separate report?
+
+Backdating: Should tasks that have already been overdue for 7+ days be abandoned immediately when the feature is deployed, or only going forward?
+----------------------------------------------------------------------------
+
+Data Integrity Questions
+Cascading updates: If a task is abandoned, should its updated_at timestamp reflect the abandonment time? (Yes, probably.)
+
+Abandoned task visibility: Should abandoned tasks still appear in:
+
+list output?
+stats counts?
+Or should they be hidden/archived?
+Re-prioritization: If someone changes an abandoned task's priority to HIGH, should it automatically be un-abandoned, or stay abandoned?
+----------------------------------------------------------------------------
+
+Implementation Questions
+Idempotency: If the auto-abandon command runs twice, should it abandon the same task twice (no effect), or detect already-abandoned tasks?
+
+Audit trail: Should we record when a task was auto-abandoned, or is the updated_at timestamp sufficient?
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+3. Reflection: 
+
+- The AI Prompts helped me to understand how the functions work together and where in the codebase, i should implement new features.
+
+- Next Steps to Deepen Understanding:
+
+Step 1: Map the Current Behavior through testing.
+Step 2: Review Existing Patterns through reading and Understanding the code logic.
+Step 3: Write Pseudocode
+Step 4: Consider Edge Cases
+Step 5: Create a Test Scenario by writing commands to manually test features.
