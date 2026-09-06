@@ -1,0 +1,68 @@
+4. 
+
+cli.py - handles user commands and output.
+app.py - coordinates application operations.
+models.py - defines task data and task behavior.
+storage.py - keeps tasks in memory and persists them as JSON.
+
+Task Creation Flow:
+Step 1: cli.py The CLI defines the create command
+Step 2: app.py validates and converts values
+Step 3: models.py creates the task
+Step 4: storage.py stores the task, TaskStorage.add_task() inserts the task into the in-memory dictionary
+Step 5: The task is serialized to JSON, TaskEncoder converts values that JSON cannot directly represent.
+
+Status Update Flow:
+Step 1: The CLI validates the requested status
+Step 2: app.py converts the string to an enum
+Step 3: Non-completion statuses use generic updating
+Step 4: storage.py finds and updates the task
+
+How Data Is Persisted:
+Mutating operations usually follow this pattern:
+Find or create task
+    |
+    v
+Modify in-memory object
+    |
+    v
+Call storage.save()
+    |
+    v
+Encode tasks as JSON
+    |
+    v
+Write tasks.json
+
+The storage file is replaced with the current contents of the in-memory dictionary each time save() runs.
+
+How Data Is Retrieved:
+When the application starts: task_manager = TaskManager()
+The TaskManager creates a TaskStorage instance. TaskStorage.__init__() calls: self.load()
+
+If tasks.json exists:
+1. The file is opened.
+2. JSON is loaded.
+3. TaskDecoder converts JSON objects back into Task objects.
+4. Each task is placed into the in-memory dictionary by ID.
+
+After loading, commands operate on the in-memory task objects.
+
+Retrieval methods include:
+get_task(task_id)
+get_all_tasks()
+get_tasks_by_status(status)
+get_tasks_by_priority(priority)
+get_overdue_tasks()
+
+The application does not read the JSON file for every command. It loads once when TaskStorage is created and saves after mutations.
+
+
+Interesting Design Patterns:
+
+Layered architecture, Each file has a mostly separate responsibility:
+
+Presentation: cli.py
+Application logic: app.py
+Domain model: models.py
+Persistence: storage.py
