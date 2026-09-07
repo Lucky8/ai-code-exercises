@@ -1,41 +1,35 @@
-// Buggy sorting function
-function mergeSort(arr) {
-    if (arr.length <= 1) return arr;
+function mergeSort(arr, compare = (a, b) => a - b) {
+    if (!Array.isArray(arr)) {
+        throw new TypeError("Expected an array");
+    }
+
+    if (arr.length <= 1) return [...arr];
 
     const mid = Math.floor(arr.length / 2);
-    const left = mergeSort(arr.slice(0, mid));
-    const right = mergeSort(arr.slice(mid));
+    const left = mergeSort(arr.slice(0, mid), compare);
+    const right = mergeSort(arr.slice(mid), compare);
 
-    return merge(left, right);
+    return merge(left, right, compare);
 }
 
-function merge(left, right) {
-    let result = [];
-    let i = 0;
-    let j = 0;
+function merge(left, right, compare) {
+    const result = [];
+    let leftIndex = 0;
+    let rightIndex = 0;
 
-    while (i < left.length && j < right.length) {
-        if (left[i] < right[j]) {
-            result.push(left[i]);
-            i++;
+    while (leftIndex < left.length && rightIndex < right.length) {
+        if (compare(left[leftIndex], right[rightIndex]) <= 0) {
+            result.push(left[leftIndex]);
+            leftIndex++;
         } else {
-            result.push(right[j]);
-            j++;
+            result.push(right[rightIndex]);
+            rightIndex++;
         }
     }
 
-    // Append any elements left after one half is exhausted.
-    while (i < left.length) {
-        result.push(left[i]);
-        i++;
-    }
-
-    while (j < right.length) {
-        result.push(right[j]);
-        j++;
-    }
-
-    return result;
+    return result
+        .concat(left.slice(leftIndex))
+        .concat(right.slice(rightIndex));
 }
 
 // Export functions for testing
