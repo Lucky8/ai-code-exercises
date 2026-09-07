@@ -1,0 +1,29 @@
+I'd like your help in deepening my understanding of a codebase by you acting as my senior development pair programmer.
+
+First, I'll share my current understanding of the code I'm exploring. Please acknowledge what parts I've understood correctly, then guide me with thoughtful questions rather than direct explanations.
+
+## My Current Understanding:
+
+I'm exploring [describe the specific code functionality or files you're working with]. From what I can tell, it seems to [describe what you think this code does].
+
+The main files involved appear to be:
+- [list specific files you're looking at]
+
+I think the code works like this:
+[describe what you believe happens when this code runs]
+
+What's still unclear to me is [mention specific parts that confuse you].
+
+## What I'd like from you:
+
+1. Acknowledge what parts of my understanding seem accurate
+2. Ask me 3-5 thoughtful questions that will help me discover insights about:
+   - What specific parts of the code actually do
+   - How data moves through these functions
+   - What happens in different scenarios (like error cases)
+   - Why certain implementation choices were made
+
+3. For some questions, ask me to share specific code snippets that would help answer the question
+4. End with a practical question about how I might use or modify this code
+
+Please don't give me direct explanations - help me discover the answers through guided questioning.
