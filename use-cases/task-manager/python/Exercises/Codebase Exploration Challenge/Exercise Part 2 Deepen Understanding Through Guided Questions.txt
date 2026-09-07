@@ -1,29 +1,43 @@
-I'd like your help in deepening my understanding of a codebase by you acting as my senior development pair programmer.
+3. Consider these questions:
 
-First, I'll share my current understanding of the code I'm exploring. Please acknowledge what parts I've understood correctly, then guide me with thoughtful questions rather than direct explanations.
+Q - In create_task(), what happens to priority_value, due_date_str, and tags before a Task object is created?
+Share the create_task() method if you want to trace each conversion.
 
-## My Current Understanding:
+A - The numeric priority is converted into a TaskPriority enum, such as 3 becoming TaskPriority.HIGH.
+The date string is converted into a datetime. Invalid dates print an error and return None.
+The CLI has already converted comma-separated input into a list such as ["work", "urgent"]. If no tags are supplied, it passes an empty list.
 
-I'm exploring [describe the specific code functionality or files you're working with]. From what I can tell, it seems to [describe what you think this code does].
 
-The main files involved appear to be:
-- [list specific files you're looking at]
+Q - Why do you think update_task_status() handles DONE differently from statuses such as IN_PROGRESS or REVIEW?
+Look closely at which model method is called and which timestamps change.
 
-I think the code works like this:
-[describe what you believe happens when this code runs]
+A - DONE is handled differently because completion has side effects beyond changing status.
 
-What's still unclear to me is [mention specific parts that confuse you].
 
-## What I'd like from you:
 
-1. Acknowledge what parts of my understanding seem accurate
-2. Ask me 3-5 thoughtful questions that will help me discover insights about:
-   - What specific parts of the code actually do
-   - How data moves through these functions
-   - What happens in different scenarios (like error cases)
-   - Why certain implementation choices were made
+Q - If a task ID does not exist, what does each update method return?
+Compare update_task_status(), update_task_priority(), and update_task_due_date().
 
-3. For some questions, ask me to share specific code snippets that would help answer the question
-4. End with a practical question about how I might use or modify this code
+A - update_task_priority() returns False, because storage.update_task() cannot find the task.
+update_task_due_date() returns False for a nonexistent task. It also returns False for an invalid date.
+update_task_status() returns False for nonexistent tasks when the new status is not DONE.
+update_task_status() returns None when the new status is DONE and the task does not exist, because that branch has no final return False.
 
-Please don't give me direct explanations - help me discover the answers through guided questioning.
+
+Q - In list_tasks(), what happens when both show_overdue and status_filter are provided?
+What does the order of the if statements tell you about which filter takes precedence?
+
+A - show_overdue takes precedence:
+If both show_overdue=True and a status filter are provided, only overdue tasks are returned. The status filter is ignored.
+
+The first matching condition returns immediately, so the order of these checks defines the filter precedence.
+
+
+Q - Why does get_statistics() retrieve all tasks from storage rather than calculate statistics inside TaskStorage?
+Share the get_statistics() method and identify which calculations are domain-related versus persistence-related.
+
+A - get_statistics() retrieves all tasks from storage because storage’s responsibility is retrieving data, while calculating business summaries belongs in the application layer.
+The overdue rule itself belongs to the Task model through is_overdue(), while app.py aggregates the results.
+
+This separation keeps TaskStorage focused on loading, saving, retrieving, updating, and deleting tasks rather than embedding reporting rules inside the persistence layer.
+
