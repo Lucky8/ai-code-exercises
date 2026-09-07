@@ -1,0 +1,24 @@
+1. The original API endpoint code you chose to document 
+
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\API Documentation\API Endpoint Example.py
+
+-------------------------------------------------------------------------------------------
+
+2. The comprehensive endpoint documentation generated using Prompt 1: 
+
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\API Documentation\User Registration API Documentation.md
+
+-------------------------------------------------------------------------------------------
+
+3. The converted documentation format created using Prompt 2:
+
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\API Documentation\openapi.yaml
+
+-------------------------------------------------------------------------------------------
+
+4. The developer usage guide created using Prompt 3:
+
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\API Documentation\DEVELOPER_GUIDE.md
+-------------------------------------------------------------------------------------------
+
+

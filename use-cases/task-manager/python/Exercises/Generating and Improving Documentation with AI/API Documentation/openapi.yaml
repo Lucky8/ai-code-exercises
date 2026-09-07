@@ -1,0 +1,289 @@
+openapi: 3.0.0
+info:
+  title: User Management API
+  description: API for user registration, authentication, and account management
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@api.example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://api.example.com
+    description: Production server
+  - url: http://localhost:5000
+    description: Development server
+
+paths:
+  /api/users/register:
+    post:
+      summary: Register a new user
+      description: Creates a new user account in the system and sends a confirmation email. This is a public endpoint that requires no authentication.
+      operationId: registerUser
+      tags:
+        - Users
+      requestBody:
+        description: User registration data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequest'
+            examples:
+              successful_registration:
+                summary: Successful registration example
+                value:
+                  username: john_doe
+                  email: john@example.com
+                  password: SecurePassword123
+              alternative_valid_request:
+                summary: Alternative valid registration
+                value:
+                  username: alice_smith
+                  email: alice.smith@domain.co.uk
+                  password: MyP@ssw0rd2024
+
+      responses:
+        '201':
+          description: User successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationSuccessResponse'
+              examples:
+                example_1:
+                  summary: Successful registration response
+                  value:
+                    message: User registered successfully
+                    user:
+                      id: 42
+                      username: john_doe
+                      email: john@example.com
+                      created_at: '2026-09-07T14:30:45.123456'
+                      role: user
+                example_2:
+                  summary: Alternative successful registration response
+                  value:
+                    message: User registered successfully
+                    user:
+                      id: 43
+                      username: alice_smith
+                      email: alice.smith@domain.co.uk
+                      created_at: '2026-09-07T15:45:22.654321'
+                      role: user
+
+        '400':
+          description: Bad request - validation failed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MissingFieldError'
+                  - $ref: '#/components/schemas/InvalidEmailError'
+                  - $ref: '#/components/schemas/WeakPasswordError'
+              examples:
+                missing_field:
+                  summary: Missing required field
+                  value:
+                    error: Missing required field
+                    message: username is required
+                invalid_email:
+                  summary: Invalid email format
+                  value:
+                    error: Invalid email
+                    message: Please provide a valid email address
+                weak_password:
+                  summary: Password too weak
+                  value:
+                    error: Weak password
+                    message: Password must be at least 8 characters long
+
+        '409':
+          description: Conflict - resource already exists
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/UsernameTakenError'
+                  - $ref: '#/components/schemas/EmailExistsError'
+              examples:
+                username_taken:
+                  summary: Username already taken
+                  value:
+                    error: Username taken
+                    message: Username is already in use
+                email_exists:
+                  summary: Email already registered
+                  value:
+                    error: Email exists
+                    message: An account with this email already exists
+
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerError'
+              examples:
+                server_error:
+                  summary: Server error response
+                  value:
+                    error: Server error
+                    message: Failed to register user
+
+components:
+  schemas:
+    # Request Schemas
+    RegistrationRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          description: The desired username for the account
+          example: john_doe
+          minLength: 1
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          description: User's email address (must match pattern ^[^@]+@[^@]+\.[^@]+$)
+          example: john@example.com
+        password:
+          type: string
+          format: password
+          description: User's password (minimum 8 characters)
+          example: SecurePassword123
+          minLength: 8
+          maxLength: 255
+
+    # Response Schemas
+    RegistrationSuccessResponse:
+      type: object
+      required:
+        - message
+        - user
+      properties:
+        message:
+          type: string
+          description: Confirmation message indicating successful registration
+          example: User registered successfully
+        user:
+          $ref: '#/components/schemas/UserResponse'
+
+    UserResponse:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - created_at
+        - role
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier for the newly created user
+          example: 42
+        username:
+          type: string
+          description: The registered username
+          example: john_doe
+        email:
+          type: string
+          format: email
+          description: The registered email address (normalized to lowercase)
+          example: john@example.com
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of account creation in UTC (ISO 8601 format)
+          example: '2026-09-07T14:30:45.123456'
+        role:
+          type: string
+          description: Default user role assigned at registration
+          example: user
+          enum:
+            - user
+            - admin
+            - moderator
+
+    # Error Schemas
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code/type
+        message:
+          type: string
+          description: Detailed error message
+
+    MissingFieldError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Missing required field
+        message: username is required
+
+    InvalidEmailError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Invalid email
+        message: Please provide a valid email address
+
+    WeakPasswordError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Weak password
+        message: Password must be at least 8 characters long
+
+    UsernameTakenError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Username taken
+        message: Username is already in use
+
+    EmailExistsError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Email exists
+        message: An account with this email already exists
+
+    ServerError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+      example:
+        error: Server error
+        message: Failed to register user
+
+  # Security Schemes (none required for this endpoint, but documented for completeness)
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authenticated endpoints (not required for registration)
+
+tags:
+  - name: Users
+    description: User registration and management operations
+    externalDocs:
+      description: User management documentation
+      url: https://api.example.com/docs/users
+
+externalDocs:
+  description: Find more information in the complete API documentation
+  url: https://api.example.com/docs

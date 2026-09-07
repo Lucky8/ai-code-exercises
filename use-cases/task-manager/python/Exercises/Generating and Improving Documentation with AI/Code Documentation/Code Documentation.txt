@@ -131,7 +131,7 @@ class TaskManager:
 
 2. Documentation generated using Prompt 1:
 
-use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\TaskManager_Documentation.py
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\Code Documentation\TaskManager_Documentation.py
 
 -------------------------------------------------------------------------------------------------------------------
 
@@ -155,4 +155,4 @@ Top 3 Improvements (No Functionality Change)
 
 4. Combined documentation:
 
-use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\TASKMANAGER_COMPLETE.py
+use-cases\task-manager\python\Exercises\Generating and Improving Documentation with AI\Code Documentation\TASKMANAGER_COMPLETE.py
