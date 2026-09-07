@@ -1,0 +1,24 @@
+1. Your initial vs. final understanding of the Task Manager codebase:
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+2. The most valuable insights gained from each prompt:
+
+- How to refine prompts to gain more insight of a codebase.
+- How to ask clarifying questions to test my understanding.
+- Building enough context leads to better accuracy.
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+3. Your approach to implementing the new business rule:
+
+- By using Clean Architecture to isolate these rules in the center of the application to keep them separate from UI and databases
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+4. Any strategies you’ve developed for approaching unfamiliar code in the future:
+
+- read the codebase to get a general understanding.
+- use AI prompts to explain the functinality.
+- use AI prompts to generate comments/documentation for complex functions.
+- use Ai promts to generate unit tests.
