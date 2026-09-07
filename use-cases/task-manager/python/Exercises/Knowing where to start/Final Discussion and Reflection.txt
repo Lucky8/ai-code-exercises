@@ -7,6 +7,7 @@
 - How to refine prompts to gain more insight of a codebase.
 - How to ask clarifying questions to test my understanding.
 - Building enough context leads to better accuracy.
+- Code behaviour 
 
 ------------------------------------------------------------------------------------------------------------------------------------
 
