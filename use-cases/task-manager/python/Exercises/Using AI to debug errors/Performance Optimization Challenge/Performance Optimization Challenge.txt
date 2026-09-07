@@ -1,0 +1,18 @@
+1. Slow Code Analysis (Python)
+
+--------------------------------------------------------------
+
+2. Prompt:
+Prompt 1: Slow Code Analysis 
+
+--------------------------------------------------------------
+
+3. Implement the suggested optimizations
+
+--------------------------------------------------------------
+4. Measure performance before and after your changes
+
+--------------------------------------------------------------
+5. Document your optimization process, results, and key learnings
+
+
