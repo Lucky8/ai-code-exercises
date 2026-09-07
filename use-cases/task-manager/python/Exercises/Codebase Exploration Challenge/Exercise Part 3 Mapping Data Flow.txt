@@ -1,0 +1,63 @@
+Complete Data Flow:
+PATH: use-cases\task-manager\python\Exercises\Codebase Exploration Challenge\diagram.png
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+State changes that occur during task completion:
+PATH: use-cases\task-manager\python\Exercises\Codebase Exploration Challenge\state-changes.png
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+Potential points of failure in this process:
+CLI validation failures, argparse rejects:
+
+Invalid status values
+Invalid priority values
+Missing required arguments
+Incorrect argument types
+
+Date parsing failures, app.py catches invalid date formats:
+datetime.strptime(due_date_str, "%Y-%m-%d")
+
+Enum conversion failures, These conversions can raise ValueError if called outside the CLI’s validation:
+TaskPriority(priority_value)
+TaskStatus(new_status_value)
+
+Missing task IDs, Storage returns None when a task does not exist:
+self.tasks.get(task_id)
+
+Most update methods then return False.
+There is one inconsistency: update_task_status(..., "done") returns None rather than explicitly returning False when the task is missing.
+
+Partial in-memory changes
+The program updates the in-memory task before saving. If saving fails, memory contains the new value but tasks.json may still contain the old value. Since the process usually ends after one CLI command, that inconsistency is temporary, but it is still a potential reliability issue.
+
+----------------------------------------------------------------------------------------------------------------------------------
+How the application persists these changes:
+- Every CLI invocation creates a new TaskManager and therefore a new TaskStorage.
+
+Startup:
+Create TaskStorage
+    |
+    v
+Check whether tasks.json exists
+    |
+    v
+Load JSON
+    |
+    v
+Decode tasks into Task objects
+
+Mutation:
+Modify Task object
+    |
+    v
+Call storage.save()
+    |
+    v
+Encode every task
+    |
+    v
+Rewrite tasks.json
+
+- This is file-based persistence rather than database persistence. The whole task collection is rewritten on each save.
