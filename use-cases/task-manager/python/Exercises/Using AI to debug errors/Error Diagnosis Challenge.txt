@@ -1,0 +1,99 @@
+1. Selected Error senario:
+
+Out of Memory (Python)
+
+---------------------------------------------------------------------
+
+2. Promts used:
+
+Prompt 2: Root Cause Analysis
+---------------------------------------------------------------------
+
+3. 
+
+Error description and what it means:
+-The program is trying to create and store a massive amount of data in RAM all at once. Think of RAM as a desk—you're trying to pile up multiple copies of a giant encyclopedia on the desk when there's only room for half of one. When you run out of space, the program crashes with a MemoryError.
+
+Root cause identification:
+- Huge array per image, Each image creates a 5000×5000×64 float64 array ≈ 12.8 GB per image.
+- No memory release, all_image_data accumulates arrays without freeing them. Multiple images = instant crash.
+-  Synchronous processing, Waits to load ALL images before processing. No opportunity for garbage collection.
+
+Suggested solution:
+Fix 1: Process Images One at a Time (Simplest):
+def process_images_streaming(image_files):
+    """Process images one at a time, don't accumulate in memory"""
+    for image_file in image_files:
+        image_data = load_and_process(image_file)
+        # Process/save result immediately, then discard
+        yield image_data  # Use generator instead of list
+
+def main():
+    image_directory = "sample_images"
+    image_files = [os.path.join(image_directory, f) for f in os.listdir(image_directory) if f.endswith('.jpg')]
+    
+    # Process one at a time
+    total_processed = 0
+    for processed_image in process_images_streaming(image_files):
+        # Process/save this image, then move to next
+        total_processed += 1
+    
+    print(f"Processed {total_processed} images")
+
+----------------------------------------------------------------------------------------------------------------------
+
+Fix 2: Use Efficient Data Types & Batching:
+def load_and_process(image_path):
+    """Use uint8 instead of float64 to reduce memory by 8x"""
+    img = Image.open(image_path)
+    
+    # Use uint8 (0-255) instead of float64 - saves 8x memory
+    # Use numpy creation directly instead of nested list
+    image_data = np.random.randint(0, 256, size=(5000, 5000, 64), dtype=np.uint8)
+    
+    return image_data
+
+def process_images_batched(image_files, batch_size=2):
+    """Process in batches to limit peak memory"""
+    results = []
+    for i in range(0, len(image_files), batch_size):
+        batch = image_files[i:i+batch_size]
+        batch_data = [load_and_process(f) for f in batch]
+        
+        # Process batch here, save results, clear memory
+        for data in batch_data:
+            yield data  # Process each individually
+        
+        del batch_data  # Explicit cleanup
+        
+----------------------------------------------------------------------------------------------------------------------
+Fix 3: Memory-Mapped Files (Advanced): 
+
+import numpy as np
+
+def process_images_memmap(image_files, output_path):
+    """Use memory-mapped file for out-of-core processing"""
+    # Create memory-mapped array instead of loading all into RAM
+    total_size = (len(image_files), 5000, 5000, 64)
+    
+    # This creates a file on disk, not in RAM
+    mmap_array = np.memmap(output_path, dtype=np.uint8, mode='w+', shape=total_size)
+    
+    for idx, image_file in enumerate(image_files):
+        # Process one image, write to disk
+        mmap_array[idx] = load_and_process(image_file)
+        mmap_array.flush()  # Write to disk
+    
+    return mmap_array
+
+----------------------------------------------------------------------------------------------------------------------
+Learning points that could help prevent similar errors:
+
+Using debugging tools & techniques:
+Tool 1: memory_profiler - Shows memory usage line by line.
+
+Tool 2: tracemalloc
+
+Tool 3: System Monitoring
+
+Tool 4: NumPy Array Inspector
