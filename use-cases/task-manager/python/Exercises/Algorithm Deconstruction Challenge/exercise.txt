@@ -1,17 +1,48 @@
 1. selected algorithm: Task text parser (converting free-form text to structured tasks)
 -------------------------------------------------------------------------------------------------------------------------------------------------
 
-2. PROMPT:
+2. PROMPT USED:
 
 Prompt 1: Understand an Algorithm Through Step-by-Step Analysis
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 
 3. Understanding:
+- This function uses a regex-based extraction pattern to parse unstructured natural language with some recognizable markers into structured task data.
+
+- The algorithm pattern is:
+
+1. Find patterns using regex (non-greedy extraction)
+2. Extract values from capture groups
+3. Remove markers from source to get clean title
+4. Transform values (string "2" → enum MEDIUM)
+5. Handle special cases (relative dates need calculation)
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+4. Insights and learning
+
+This is a domain-specific language (DSL) parser. It recognizes a custom mini-syntax:
+[title text] [@tags] [!priority] [#date]
+
+Section A: Initialization & Defaults
+Section B: Priority Extraction (Lines with !)
+Section C: Tag Extraction (Lines with @)
+Section D: Date Extraction & Parsing (Lines with #)
+Section E: Cleanup & Assembly
+
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 
-4. 
+Reflection Questions:
 
----------------------------------------------------------------------------------------------------------------------------------------------------
+Understanding:
+- The AI explanation helped me identify how the algorithm uses the markers (@, !, #) to extract task title, priority, tags and dates.
 
-Reflection Questions
+Explaining to a Junior Developer:
+The algorithm uses regex to find the data, string replacement cleans it up, then conversion transforms it into usable formats.
+
+
+Possible Improvements:
+
+\s prefix in regex - Requires whitespace before marker  -	Prevents email@domain.com being parsed as a tag
+\b word boundary    -	Requires word boundary after priority   -	Prevents !2nd matching as !2
+Take first match only for priority -	Single priority per task -	!2 !3 → uses !2, ignores !3 (no ambiguity)
