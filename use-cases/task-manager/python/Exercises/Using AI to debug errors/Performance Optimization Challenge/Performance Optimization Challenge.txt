@@ -1,0 +1,34 @@
+1. Slow Code Analysis (Python)
+
+--------------------------------------------------------------
+
+2. Prompt:
+Prompt 1: Slow Code Analysis 
+
+--------------------------------------------------------------
+
+3. Implement the suggested optimizations
+
+--------------------------------------------------------------
+4. Measure performance before and after your changes
+
+--------------------------------------------------------------
+5. Document your optimization process, results, and key learnings
+
+Why This Code Is Slow (Simple Explanation)
+The code has a cascading complexity problem:
+
+- The nested loops check every product against every other product → O(n²) iterations
+- Inside each iteration, it scans through all previously found results to check for duplicates → O(n³) overall complexity
+
+For 5,000 products, that's potentially 125 billion+ operations, which explains the 20-30 second runtime.
+
+Performance Improvements:
+Improvement 1: Use a Set for O(1) Duplicate Checks: ~12-15x faster (eliminates redundant checks and O(n³) scanning)
+ref: use-cases\task-manager\python\Exercises\Using AI to debug errors\Performance Optimization Challenge\inventory_analysis_v1_set_optimization.py
+
+Improvement 2: Two-Pointer Algorithm, Sort products by price first, then use two pointers: ~100-200x faster (O(n²) to O(n log n) + O(n))
+ref: use-cases\task-manager\python\Exercises\Using AI to debug errors\Performance Optimization Challenge\inventory_analysis_v2_two_pointer.py
+
+Improvement 3: Dictionary Lookup for Price Ranges, Bucket products by price range to reduce comparisons: ~50-100x faster (reduces comparisons from n² to ~n)
+ref: use-cases\task-manager\python\Exercises\Using AI to debug errors\Performance Optimization Challenge\inventory_analysis_v3_bucketing.py

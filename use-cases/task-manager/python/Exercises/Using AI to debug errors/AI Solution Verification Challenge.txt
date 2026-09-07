@@ -1,0 +1,107 @@
+1. 
+    use-cases\debug-limitations\javascript\merge_sort.js
+---------------------------------------------------------------------------------------------------------
+
+2.
+
+---------------------------------------------------------------------------------------------------------
+3.
+
+---------------------------------------------------------------------------------------------------------
+4.
+    Edge cases
+
+- Arrays with odd lengths, such as [4, 1, 3, 2, 5]
+- Duplicate values
+- Negative numbers and zero
+- Very large arrays
+- Confirming the original input is not mutated
+- Arrays where all values are equal
+
+
+The underlying pattern in the current implementation is divide and conquer:
+- Divide the array into two halves.
+- Recursively sort each half.
+- Combine the sorted halves with a linear merge.
+
+
+Potential weaknesses
+
+Limited input contract
+- The code assumes arr is an array: mergeSort(null); // TypeError
+It also assumes values can be compared meaningfully with <. Numbers work well, but strings, objects, NaN, or mixed types may produce surprising results.
+
+- No custom comparator
+A future requirement such as sorting objects would require changing the merge logic: mergeSort(users, (a, b) => a.age - b.age);
+The current API cannot support that.
+
+- Base case returns the original array
+For mergeSort([5]), the original array reference is returned. For longer arrays, a new array is returned. That inconsistency may matter if callers expect the function always to return a copy.
+
+- Recursive allocation overhead
+slice() creates arrays at every level, and each merge creates another array. The asymptotic complexity remains 
+𝑂
+(
+𝑛
+log
+⁡
+𝑛
+)
+O(nlogn) time and 
+𝑂
+(
+𝑛
+)
+O(n) peak auxiliary space, but large inputs create allocation and garbage-collection overhead.
+
+- Testing is indirect
+Only mergeSort is exported. The merge function cannot be unit-tested directly, so failures in splitting and merging are harder to isolate.
+
+
+- Stale naming
+The comment // Buggy sorting function is now misleading. It may confuse another developer reviewing the repaired file.
+
+---------------------------------------------------------------------------------------------------------
+
+5. 
+
+PATH: use-cases\debug-limitations\javascript\merge_sort.js
+
+function mergeSort(arr, compare = (a, b) => a - b) {
+    if (!Array.isArray(arr)) {
+        throw new TypeError("Expected an array");
+    }
+
+    if (arr.length <= 1) return [...arr];
+
+    const mid = Math.floor(arr.length / 2);
+    const left = mergeSort(arr.slice(0, mid), compare);
+    const right = mergeSort(arr.slice(mid), compare);
+
+    return merge(left, right, compare);
+}
+
+function merge(left, right, compare) {
+    const result = [];
+    let leftIndex = 0;
+    let rightIndex = 0;
+
+    while (leftIndex < left.length && rightIndex < right.length) {
+        if (compare(left[leftIndex], right[rightIndex]) <= 0) {
+            result.push(left[leftIndex]);
+            leftIndex++;
+        } else {
+            result.push(right[rightIndex]);
+            rightIndex++;
+        }
+    }
+
+    return result
+        .concat(left.slice(leftIndex))
+        .concat(right.slice(rightIndex));
+}
+
+// Export functions for testing
+module.exports = { mergeSort };
+
+
