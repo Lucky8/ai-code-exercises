@@ -1,0 +1,128 @@
+Exercise 1: Code Readability Improvement (Java)
+--------------------------------------------------------------------------------------------------------------------------------
+Prompt 1: Code Readability Improvement
+
+The main readability problem is that the code uses very short names (U, un, pw, em, a, f) and puts several responsibilities into the same methods.
+
+Recommended naming
+Using standard Java conventions, I'd rename things approximately as follows:
+UserMgr              → UserManager
+U                    → User
+u_list               → users
+db                   → database
+d                    → database
+a                    → addUser
+f                    → findUserByUsername
+un                   → username
+pw                   → password
+em                   → email
+nu                   → newUser
+res                  → insertSuccessful
+getUn()              → getUsername()
+getPw()              → getPassword()
+getEm()              → getEmail()
+
+Break the complex sections apart, addUser() currently has four responsibilities:
+- Validate input.
+- Check whether the username already exists.
+- Create/store the user in memory.
+- Persist the user to the database.
+
+Those can be separated into focused methods.
+
+
+Two important issues beyond readability, There are two correctness/security problems I'd address before considering this refactoring complete.
+SQL injection
+
+This is unsafe: "INSERT INTO users VALUES ('" + un + "', '" + pw + "', '" + em + "')"
+A username such as: ' OR '1'='1
+could manipulate the SQL statement.
+
+Use a PreparedStatement (or whatever parameterized-query mechanism DBConn provides) instead of concatenating user input into SQL.
+
+Password storage
+
+The code appears to insert the raw password directly into the database: user.getPassword()
+Passwords should not be stored in plaintext. They should be hashed with a password-hashing algorithm designed for passwords, such as Argon2id, bcrypt, or scrypt.
+
+So in a production implementation, I'd aim for something more like:
+UserManager
+    ├── validate user input
+    ├── check username availability
+    ├── hash password
+    ├── create User
+    └── persist User using parameterized SQL
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+Exercise 2: Function Refactoring (Python)
+
+Prompt 2: Function Refactoring
+
+Responsibilities currently mixed together
+
+process_orders currently handles at least these responsibilities:
+1. Iterating over orders
+2. Validating inventory availability
+    Does the item exist?
+    Is there enough stock?
+3. Validating the customer
+4. Calculating the item price
+5. Applying the premium-customer discount
+6. Calculating shipping
+7. Calculating tax
+8. Calculating the final price
+9. Updating inventory
+10. Tracking total revenue
+11. Building successful-order results
+12. Building error results
+
+Suggested decomposition, A clean structure could be:
+
+process_orders()
+├── process_single_order()
+│   ├── validate_order()
+│   ├── calculate_price()
+│   ├── calculate_shipping()
+│   ├── calculate_tax()
+│   ├── update_inventory()
+│   └── build_order_result()
+└── track revenue/errors
+
+validate_order() — checks whether the order can be processed.
+calculate_price() — calculates item price and premium discount.
+calculate_shipping() — determines shipping cost.
+calculate_tax() — calculates tax.
+update_inventory() — changes stock.
+build_order_result() — creates the result dictionary.
+process_single_order() — coordinates the processing of one order.
+
+Refactored version:
+PATH: use-cases\task-manager\python\Exercises\Using AI to refactor and enhance code\refactored_version.py
+
+-----------------------------------------------------------------------------------------------------------------------------
+Exercise 3: Code Duplication Detection (JavaScript)
+
+Prompt 3: Code Duplication Detection
+
+1. Repeated patterns:
+A. Calculating averages
+
+These three sections have the same structure:
+let totalAge = 0;
+for (...) {
+  totalAge += userData[i].age;
+}
+const averageAge = totalAge / userData.length;
+
+B. Finding the highest value
+The same pattern is repeated three times:
+
+let highestAge = userData[0].age;
+for (...) {
+  if (userData[i].age > highestAge) {
+    highestAge = userData[i].age;
+  }
+}
+
