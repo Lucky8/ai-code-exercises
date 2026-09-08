@@ -6,12 +6,348 @@
 2. Prompt: 
 Prompt 2: Pattern Implementation Guidance
 
+Step-by-step refactoring plan, Step 1 — Define a common interface
+
+Identify what all database connections have in common:
+connect()
+
+We can represent that with an abstract base class.
+
+Step 2 — Create concrete connection classes, Move database-specific logic out of DatabaseConnection:
+MySQLConnection
+PostgreSQLConnection
+MongoDBConnection
+RedisConnection
+
+Each class knows how its own connection is constructed.
+
+Step 3 — Move object creation into a Factory, Create:
+DatabaseConnectionFactory
+
+It maps:
+mysql      → MySQLConnection
+postgresql → PostgreSQLConnection
+mongodb    → MongoDBConnection
+redis      → RedisConnection
+
+Step 4 — Move configuration into a configuration object, The original constructor has many parameters:
+db_type, host, port, username, password, database,
+use_ssl, connection_timeout, retry_attempts,
+pool_size, charset
+
+Passing this many parameters around becomes cumbersome.
+A DatabaseConfig dataclass makes the configuration explicit and easier to extend.
+
+Step 5 — Make the client independent of concrete types, Application code shouldn't need to know how MySQL, MongoDB, etc. are implemented.
+
+It should simply do:
+db = DatabaseConnectionFactory.create(config)
+db.connect()
+-----------------------------------------------------------------------------------------------------------------------
+Refactored implementation:
+Here is a reasonably clean version that keeps the behavior of your original example while applying the Factory approach.
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 
+@dataclass
+class DatabaseConfig:
+    db_type: str
+    host: str
+    port: int
+    username: str
+    password: str
+    database: str
+    use_ssl: bool = False
+    connection_timeout: int = 30
+    retry_attempts: int = 3
+    pool_size: int = 5
+    charset: str = "utf8"
+
+
+class DatabaseConnection(ABC):
+    """Common interface for all database connections."""
+
+    def __init__(self, config: DatabaseConfig):
+        self.config = config
+        self.connection = None
+
+    @abstractmethod
+    def connect(self):
+        """Establish the database connection."""
+        pass
+
+
+class MySQLConnection(DatabaseConnection):
+    def connect(self):
+        config = self.config
+
+        print(f"Connecting to {config.db_type} database...")
+
+        connection_string = (
+            f"mysql://{config.username}:{config.password}"
+            f"@{config.host}:{config.port}/{config.database}"
+        )
+
+        connection_string += f"?charset={config.charset}"
+        connection_string += (
+            f"&connectionTimeout={config.connection_timeout}"
+        )
+
+        if config.use_ssl:
+            connection_string += "&useSSL=true"
+
+        print(f"MySQL Connection: {connection_string}")
+        # self.connection = mysql.connector.connect(...)
+
+        print("Connection successful!")
+        return self.connection
+
+
+class PostgreSQLConnection(DatabaseConnection):
+    def connect(self):
+        config = self.config
+
+        print(f"Connecting to {config.db_type} database...")
+
+        connection_string = (
+            f"postgresql://{config.username}:{config.password}"
+            f"@{config.host}:{config.port}/{config.database}"
+        )
+
+        if config.use_ssl:
+            connection_string += "?sslmode=require"
+
+        print(f"PostgreSQL Connection: {connection_string}")
+        # self.connection = psycopg2.connect(...)
+
+        print("Connection successful!")
+        return self.connection
+
+
+class MongoDBConnection(DatabaseConnection):
+    def connect(self):
+        config = self.config
+
+        print(f"Connecting to {config.db_type} database...")
+
+        connection_string = (
+            f"mongodb://{config.username}:{config.password}"
+            f"@{config.host}:{config.port}/{config.database}"
+        )
+
+        connection_string += f"?retryAttempts={config.retry_attempts}"
+        connection_string += f"&poolSize={config.pool_size}"
+
+        if config.use_ssl:
+            connection_string += "&ssl=true"
+
+        print(f"MongoDB Connection: {connection_string}")
+        # self.connection = pymongo.MongoClient(...)
+
+        print("Connection successful!")
+        return self.connection
+
+
+class RedisConnection(DatabaseConnection):
+    def connect(self):
+        config = self.config
+
+        print(f"Connecting to {config.db_type} database...")
+
+        print(
+            f"Redis Connection: "
+            f"{config.host}:{config.port}/{config.database}"
+        )
+        # self.connection = redis.Redis(...)
+
+        print("Connection successful!")
+        return self.connection
+
+
+class DatabaseConnectionFactory:
+    """Creates the appropriate database connection."""
+
+    _connection_types = {
+        "mysql": MySQLConnection,
+        "postgresql": PostgreSQLConnection,
+        "mongodb": MongoDBConnection,
+        "redis": RedisConnection,
+    }
+
+    @classmethod
+    def create(cls, config: DatabaseConfig) -> DatabaseConnection:
+        try:
+            connection_class = cls._connection_types[config.db_type]
+        except KeyError:
+            raise ValueError(
+                f"Unsupported database type: {config.db_type}"
+            )
+
+        return connection_class(config)
+
+-----------------------------------------------------------------------------------------------------------------------
+How this aligns with Factory principles, The original design looks roughly like this:
+Application
+    |
+    v
+DatabaseConnection
+    |
+    +-- if mysql
+    +-- if postgresql
+    +-- if mongodb
+    +-- if redis
+
+The refactored design is:
+                    +--------------------+
+                    | DatabaseConnection  |
+                    |     interface       |
+                    +---------+----------+
+                              ^
+              +---------------+---------------+
+              |               |               |
+              |               |               |
+       MySQLConnection  PostgreSQLConnection  ...
+              ^
+              |
+    +---------+----------+
+    | DatabaseConnection |
+    |      Factory       |
+    +--------------------+
+              ^
+              |
+         Application
 
 -----------------------------------------------------------------------------------------------------------------------
 
-3.
+3. Tests for behavior preservation
+
+Because the actual database libraries are commented out in your example, we can test the observable behavior without requiring real databases.
+
+The most important things to test are:
+
+- The factory creates the correct concrete type.
+- Configuration is preserved.
+- MySQL connection strings are constructed correctly.
+- PostgreSQL SSL behavior is preserved.
+- MongoDB retry/pool/SSL behavior is preserved.
+- Redis behavior is preserved.
+- Unsupported database types still raise ValueError.
+
+Here's a pytest test suite.
+
+import pytest
+
+from database import (
+    DatabaseConfig,
+    DatabaseConnectionFactory,
+    MySQLConnection,
+    PostgreSQLConnection,
+    MongoDBConnection,
+    RedisConnection,
+)
+
+
+def test_factory_creates_mysql_connection():
+    config = DatabaseConfig(
+        db_type="mysql",
+        host="localhost",
+        port=3306,
+        username="user",
+        password="secret",
+        database="app_db",
+    )
+
+    connection = DatabaseConnectionFactory.create(config)
+
+    assert isinstance(connection, MySQLConnection)
+    assert connection.config == config
+
+
+def test_factory_creates_postgresql_connection():
+    config = DatabaseConfig(
+        db_type="postgresql",
+        host="localhost",
+        port=5432,
+        username="user",
+        password="secret",
+        database="app_db",
+    )
+
+    connection = DatabaseConnectionFactory.create(config)
+
+    assert isinstance(connection, PostgreSQLConnection)
+
+
+def test_factory_creates_mongodb_connection():
+    config = DatabaseConfig(
+        db_type="mongodb",
+        host="localhost",
+        port=27017,
+        username="user",
+        password="secret",
+        database="analytics",
+    )
+
+    connection = DatabaseConnectionFactory.create(config)
+
+    assert isinstance(connection, MongoDBConnection)
+
+
+def test_factory_creates_redis_connection():
+    config = DatabaseConfig(
+        db_type="redis",
+        host="localhost",
+        port=6379,
+        username="user",
+        password="secret",
+        database="cache",
+    )
+
+    connection = DatabaseConnectionFactory.create(config)
+
+    assert isinstance(connection, RedisConnection)
+
+
+def test_factory_rejects_unsupported_database():
+    config = DatabaseConfig(
+        db_type="oracle",
+        host="localhost",
+        port=1521,
+        username="user",
+        password="secret",
+        database="app_db",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported database type"):
+        DatabaseConnectionFactory.create(config)
 
 
 -----------------------------------------------------------------------------------------------------------------------
+The biggest benefit is decoupling: 
+
+1. Separation of responsibilities
+    The original DatabaseConnection class handled both connection logic and deciding which database type to use. The Factory separates object creation from connection behavior.
+
+2. Reduced conditional logic
+    The large if/elif chain is removed from connect(). Each database has its own class, making the code easier to read and understand.
+
+3. Easier to add new database types
+    Adding something like SQLite requires creating a new SQLiteConnection class and registering it with the Factory, rather than modifying a large existing method.
+
+4. Improved maintainability
+    Changes to MySQL-specific behavior only affect MySQLConnection. They don't risk accidentally changing PostgreSQL, MongoDB, or Redis behavior.
+
+5. Better testability
+    Each database implementation can be tested independently, while the Factory can have its own tests to verify that it creates the correct connection type.
+
+6. Encapsulation of object creation
+    Application code doesn't need to know which concrete class to instantiate. It simply asks:
+        connection = DatabaseConnectionFactory.create(config)
+
+7. Supports the Open/Closed Principle
+    The design is more open to adding new database implementations without modifying existing database connection classes.
+
+8. Cleaner client code
+    Instead of application code knowing about all the different database implementations, it works with the common DatabaseConnection interface.
