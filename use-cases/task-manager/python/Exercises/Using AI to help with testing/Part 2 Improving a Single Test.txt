@@ -1,4 +1,5 @@
 Exercise 2.1: Writing Your First Test
+
 1. Simple Test:
 
 def test_calculate_task_score_high_priority():
@@ -12,4 +13,188 @@ def test_calculate_task_score_high_priority():
     assert score == 45  # 40 priority + 5 recently updated
 
 -------------------------------------------------------------------------------------------------------------------
-3. 
+3. Improved Test:
+
+def test_high_priority_contributes_40_points():
+    task = make_task(
+        priority=TaskPriority.HIGH,
+        updated_at=datetime.now() - timedelta(days=2),
+    )
+
+    score = calculate_task_score(task)
+
+    assert score == 40
+
+========================================================================================================================
+Exercise 2.2: Learning From Examples
+
+3. comprehensive test for the due date calculation functionality based on conversation.
+
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
+import pytest
+
+from models import Task, TaskPriority
+from task_priority import calculate_task_score
+
+
+FIXED_NOW = datetime(2026, 9, 8, 12, 0, 0)
+
+
+def make_task(due_date=None):
+    """Create a task with all non-due-date scoring factors neutral."""
+    task = Task(
+        "Test task",
+        priority=TaskPriority.LOW,
+        due_date=due_date,
+    )
+
+    # Prevent the +5 recent-update bonus from affecting the result.
+    task.updated_at = FIXED_NOW - timedelta(days=2)
+
+    return task
+
+
+@pytest.mark.parametrize(
+    "due_date, expected_due_date_bonus",
+    [
+        (None, 0),
+        (FIXED_NOW - timedelta(hours=1), 35),  # Overdue
+        (FIXED_NOW, 20),                        # Due exactly now
+        (FIXED_NOW + timedelta(hours=2), 20),  # Less than 24 hours away
+        (FIXED_NOW + timedelta(days=1), 15),   # 1 day away
+        (FIXED_NOW + timedelta(days=2), 15),   # Exactly 2 days away
+        (FIXED_NOW + timedelta(days=3), 10),   # 3 days away
+        (FIXED_NOW + timedelta(days=7), 10),   # Exactly 7 days away
+        (FIXED_NOW + timedelta(days=8), 0),    # Beyond 7 days
+    ],
+)
+def test_due_date_contributes_expected_score(due_date, expected_due_date_bonus):
+    """
+    Verify each due-date range contributes the documented bonus.
+
+    LOW priority contributes 10 points.
+    The task is deliberately updated two days ago, so there is
+    no recent-update bonus.
+    """
+    task = make_task(due_date=due_date)
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 10 + expected_due_date_bonus
+
+
+def test_overdue_task_gets_highest_due_date_bonus():
+    """An overdue task receives a 35-point due-date bonus."""
+    task = make_task(
+        due_date=FIXED_NOW - timedelta(minutes=1),
+    )
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score - 10 == 35
+
+
+def test_task_due_within_24_hours_is_treated_as_due_today():
+    """
+    The implementation uses timedelta.days, so a task two hours
+    in the future has days_until_due == 0 and receives +20.
+    """
+    task = make_task(
+        due_date=FIXED_NOW + timedelta(hours=2),
+    )
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 30
+
+
+def test_task_due_in_exactly_two_days_gets_two_day_bonus():
+    """A task exactly two days away receives the +15 bonus."""
+    task = make_task(
+        due_date=FIXED_NOW + timedelta(days=2),
+    )
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 25
+
+
+def test_task_due_in_exactly_seven_days_gets_week_bonus():
+    """A task exactly seven days away receives the +10 bonus."""
+    task = make_task(
+        due_date=FIXED_NOW + timedelta(days=7),
+    )
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 20
+
+
+def test_task_due_after_seven_days_gets_no_due_date_bonus():
+    """A task more than seven days away receives no due-date bonus."""
+    task = make_task(
+        due_date=FIXED_NOW + timedelta(days=8),
+    )
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 10
+
+
+def test_task_without_due_date_gets_no_due_date_bonus():
+    """A missing due date should not change the base score."""
+    task = make_task(due_date=None)
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    assert score == 10
+
+
+def test_due_date_bonus_composes_with_other_scoring_factors():
+    """
+    Due-date scoring should combine with priority, tags, and
+    recent-update scoring.
+    """
+    task = Task(
+        "Urgent blocker",
+        priority=TaskPriority.HIGH,
+        due_date=FIXED_NOW + timedelta(days=1),
+        tags=["blocker"],
+    )
+    task.updated_at = FIXED_NOW
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = FIXED_NOW
+
+        score = calculate_task_score(task)
+
+    # HIGH priority:       +40
+    # Due within 2 days:   +15
+    # Blocker tag:          +8
+    # Updated < 1 day:      +5
+    # --------------------------
+    # Total:                68
+    assert score == 68
