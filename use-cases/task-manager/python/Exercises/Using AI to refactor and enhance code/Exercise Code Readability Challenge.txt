@@ -1,0 +1,36 @@
+Chose code sample: Missing Documentation (Python)
+
+Promt used: Prompt 2: Comment and Documentation Addition
+
+I need to improve this code's readability by adding appropriate comments and documentation:
+
+[def calculate(principal, rate, time, additional=0, frequency=12):
+    result = principal
+    rate_per_period = rate / 100 / frequency
+    total_periods = time * frequency
+
+    for period in range(1, total_periods + 1):
+        interest = result * rate_per_period
+        result += interest
+        if period % frequency == 0 and period < total_periods:
+            result += additional
+
+    return {
+        "final_amount": round(result, 2),
+        "interest_earned": round(result - principal - (additional * (time - 1)), 2),
+        "total_contributions": principal + (additional * (time - 1))
+    }]
+
+Please:
+1. Add a clear function/method description comment that explains purpose, inputs, and outputs
+Make sure the documentation clarifies:
+    What the function does
+    What each parameter means (including units)
+    What the return values represent
+
+2. Add comments for complex or non-obvious code sections
+4. Would you rename any variables to improve clarity?
+5. Document any assumptions, edge cases, or limitations
+6. Explain any algorithms or business rules implemented
+7. Don't add obvious comments that just repeat what the code clearly says
+8. Use the standard comment style for the language

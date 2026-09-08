@@ -1,0 +1,105 @@
+Exercise 3.1: TDD for a New Feature
+----------------------------------------------------------------------------------------------------------
+Failing test:
+
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
+from models import Task, TaskPriority
+from task_priority import calculate_task_score
+
+
+def test_task_assigned_to_current_user_gets_12_point_boost():
+    fixed_now = datetime(2026, 9, 8, 12, 0, 0)
+    current_user = "alice"
+
+    task = Task(
+        "My task",
+        priority=TaskPriority.LOW,
+        assignee=current_user,
+    )
+
+    # Keep the test focused on the assignment boost.
+    task.updated_at = fixed_now - timedelta(days=2)
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        score = calculate_task_score(task)
+
+    # LOW priority = 10
+    # Assigned to current user = +12
+    assert score == 22
+
+----------------------------------------------------------------------------------------------------------
+minimal implementation:
+
+def calculate_task_score(task):
+    """Calculate a priority score for a task based on multiple factors."""
+    priority_weights = {
+        TaskPriority.LOW: 1,
+        TaskPriority.MEDIUM: 2,
+        TaskPriority.HIGH: 4,
+        TaskPriority.URGENT: 6
+    }
+
+    score = priority_weights.get(task.priority, 0) * 10
+
+    if task.due_date:
+        days_until_due = (task.due_date - datetime.now()).days
+        if days_until_due < 0:
+            score += 35
+        elif days_until_due == 0:
+            score += 20
+        elif days_until_due <= 2:
+            score += 15
+        elif days_until_due <= 7:
+            score += 10
+
+    if task.status == TaskStatus.DONE:
+        score -= 50
+    elif task.status == TaskStatus.REVIEW:
+        score -= 15
+
+    if any(tag in ["blocker", "critical", "urgent"] for tag in task.tags):
+        score += 8
+
+    days_since_update = (datetime.now() - task.updated_at).days
+    if days_since_update < 1:
+        score += 5
+
+    # New feature: boost tasks assigned to the current user.
+    if task.assignee == current_user:
+        score += 12
+
+    return score
+----------------------------------------------------------------------------------------------------------
+
+Exercise 3.2: TDD for Bug Fix
+
+PATH: use-cases\testing-001\python\TaskManager\tests\test_task_priority.py
+
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
+from models import Task, TaskPriority
+from task_priority import calculate_task_score
+
+
+def test_recency_bonus_uses_elapsed_days_boundary():
+    fixed_now = datetime(2026, 9, 8, 12, 0, 0)
+
+    recent_task = Task("Recently updated", priority=TaskPriority.LOW)
+    recent_task.updated_at = fixed_now - timedelta(hours=23)
+
+    old_task = Task("Updated yesterday", priority=TaskPriority.LOW)
+    old_task.updated_at = fixed_now - timedelta(days=1)
+
+    with patch("task_priority.datetime") as mock_datetime:
+        mock_datetime.now.return_value = fixed_now
+
+        recent_score = calculate_task_score(recent_task)
+        old_score = calculate_task_score(old_task)
+
+    assert recent_score == 15
+    assert old_score == 10
