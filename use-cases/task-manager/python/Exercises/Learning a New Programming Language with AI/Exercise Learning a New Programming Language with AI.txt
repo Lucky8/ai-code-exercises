@@ -1,0 +1,24 @@
+Part 1: Create Your Learning Journey Plan
+
+1. Define your goals:
+
+
+2. Create a learning plan with prompt:
+
+       I'm proficient in [YOUR SOURCE LANGUAGE] and want to learn [TARGET LANGUAGE] to [YOUR GOAL].
+
+   Could you help me create a structured learning journey plan with:
+   - 3-4 distinct learning phases
+   - Prerequisites for each phase
+   - 4-5 specific learning steps per phase
+   - Verification activities for each phase
+
+   Please structure it similar to this Java learning plan example:
+   [PASTE THE JAVA LEARNING PLAN FROM THE WORKSHOP]
+
+
+3. Refine your plan:
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Part 2: Apply the Four-Step Prompting Strategy
