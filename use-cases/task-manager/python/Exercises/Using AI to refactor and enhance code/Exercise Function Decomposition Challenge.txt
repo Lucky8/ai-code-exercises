@@ -1,0 +1,254 @@
+1. Selected function: 
+Report Generation Function with Multiple Data Transformations (Python)
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+2. 
+- Identify the distinct responsibilities in the function:
+
+- Validate the input list and allowed report/output options.
+- Validate and apply the optional date range.
+- Apply field filters and handle the no-results case.
+- Calculate summary metrics: totals, averages, maximum, and minimum.
+- Group transactions and calculate group statistics.
+- Add detailed transaction calculations when requested.
+- Calculate monthly trends and forecast projections.
+- Build chart-ready data.
+- Assemble the report and select the output renderer.
+
+- Create a decomposition plan
+
+Keep `generate_sales_report` as a small orchestration function. Extract focused
+helpers for validation, filtering, metrics, grouping, report-type sections,
+charts, and output rendering:
+
+```text
+generate_sales_report
+|-- validate_report_request
+|-- filter_sales_data
+|   |-- apply_date_range
+|   `-- apply_filters
+|-- calculate_summary
+|-- group_sales
+|-- build_detailed_transactions / build_forecast
+|-- build_charts
+`-- render_report
+```
+
+Each helper should receive data and return data. That keeps calculations
+independently testable and leaves format-specific behavior in the renderer.
+
+
+- Extract helper functions with clear names and purposes
+
+Suggested mapping from the original function:
+
+- The first three checks move to `validate_report_request`.
+- Date parsing and date filtering move to `apply_date_range`.
+- The `filters.items()` loop moves to `apply_filters`.
+- The basic metric block moves to `calculate_summary`.
+- The `grouped_data` block moves to `group_sales`.
+- The detailed-report loop moves to `build_detailed_transactions`.
+- Monthly totals, growth rates, and projections move to `build_forecast`.
+- The chart loops move to `build_charts`.
+- The final output-format conditional moves to `render_report`.
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Refactor the main function to call the helper functions
+
+```python
+from datetime import datetime
+
+
+def validate_report_request(sales_data, report_type, output_format):
+	if not isinstance(sales_data, list) or not sales_data:
+		raise ValueError("Sales data must be a non-empty list")
+	if report_type not in {"summary", "detailed", "forecast"}:
+		raise ValueError("Report type must be 'summary', 'detailed', or 'forecast'")
+	if output_format not in {"pdf", "excel", "html", "json"}:
+		raise ValueError("Output format must be 'pdf', 'excel', 'html', or 'json'")
+
+
+def apply_date_range(sales_data, date_range):
+	if not date_range:
+		return sales_data
+	if "start" not in date_range or "end" not in date_range:
+		raise ValueError("Date range must include 'start' and 'end' dates")
+
+	start = datetime.strptime(date_range["start"], "%Y-%m-%d")
+	end = datetime.strptime(date_range["end"], "%Y-%m-%d")
+	if start > end:
+		raise ValueError("Start date cannot be after end date")
+
+	return [
+		sale for sale in sales_data
+		if start <= datetime.strptime(sale["date"], "%Y-%m-%d") <= end
+	]
+
+
+def apply_filters(sales_data, filters):
+	for key, expected in (filters or {}).items():
+		if isinstance(expected, list):
+			sales_data = [sale for sale in sales_data if sale.get(key) in expected]
+		else:
+			sales_data = [sale for sale in sales_data if sale.get(key) == expected]
+	return sales_data
+
+
+def filter_sales_data(sales_data, date_range, filters):
+	return apply_filters(apply_date_range(sales_data, date_range), filters)
+
+
+def calculate_summary(sales_data):
+	total = sum(sale["amount"] for sale in sales_data)
+	maximum = max(sales_data, key=lambda sale: sale["amount"])
+	minimum = min(sales_data, key=lambda sale: sale["amount"])
+	return {
+		"total_sales": total,
+		"transaction_count": len(sales_data),
+		"average_sale": total / len(sales_data),
+		"max_sale": {"amount": maximum["amount"], "date": maximum["date"], "details": maximum},
+		"min_sale": {"amount": minimum["amount"], "date": minimum["date"], "details": minimum},
+	}
+
+
+def group_sales(sales_data, grouping, total_sales):
+	if not grouping:
+		return None
+
+	groups = {}
+	for sale in sales_data:
+		key = sale.get(grouping, "Unknown")
+		group = groups.setdefault(key, {"count": 0, "total": 0, "items": []})
+		group["count"] += 1
+		group["total"] += sale["amount"]
+		group["items"].append(sale)
+
+	return {
+		"by": grouping,
+		"groups": {
+			key: {
+				"count": group["count"],
+				"total": group["total"],
+				"average": group["total"] / group["count"],
+				"percentage": group["total"] / total_sales * 100,
+			}
+			for key, group in groups.items()
+		},
+	}
+
+
+def build_detailed_transactions(sales_data):
+	transactions = []
+	for sale in sales_data:
+		transaction = dict(sale)
+		if "tax" in sale and "amount" in sale:
+			transaction["pre_tax"] = sale["amount"] - sale["tax"]
+		if "cost" in sale and "amount" in sale:
+			transaction["profit"] = sale["amount"] - sale["cost"]
+			transaction["margin"] = transaction["profit"] / sale["amount"] * 100
+		transactions.append(transaction)
+	return transactions
+
+
+def build_forecast(sales_data):
+	monthly_sales = {}
+	for sale in sales_data:
+		date = datetime.strptime(sale["date"], "%Y-%m-%d")
+		month = f"{date.year}-{date.month:02d}"
+		monthly_sales[month] = monthly_sales.get(month, 0) + sale["amount"]
+
+	months = sorted(monthly_sales)
+	growth_rates = {}
+	growth_values = []
+	for previous, current in zip(months, months[1:]):
+		if monthly_sales[previous] > 0:
+			growth = (monthly_sales[current] - monthly_sales[previous]) / monthly_sales[previous] * 100
+			growth_rates[current] = growth
+			growth_values.append(growth)
+
+	average_growth = sum(growth_values) / len(growth_values) if growth_values else 0
+	projected = {}
+	if months:
+		year, month = map(int, months[-1].split("-"))
+		amount = monthly_sales[months[-1]]
+		for _ in range(3):
+			month += 1
+			if month > 12:
+				month, year = 1, year + 1
+			amount *= 1 + average_growth / 100
+			projected[f"{year}-{month:02d}"] = amount
+
+	return {
+		"monthly_sales": monthly_sales,
+		"growth_rates": growth_rates,
+		"average_growth_rate": average_growth,
+		"projected_sales": projected,
+	}
+
+
+def build_charts(sales_data, grouping, grouping_data):
+	date_sales = {}
+	for sale in sales_data:
+		date_sales[sale["date"]] = date_sales.get(sale["date"], 0) + sale["amount"]
+
+	dates = sorted(date_sales)
+	charts = {"sales_over_time": {"labels": dates, "data": [date_sales[date] for date in dates]}}
+	if grouping:
+		groups = grouping_data["groups"]
+		charts[f"sales_by_{grouping}"] = {
+			"labels": list(groups),
+			"data": [group["total"] for group in groups.values()],
+		}
+	return charts
+
+
+def render_report(report_data, output_format, include_charts):
+	if output_format == "json":
+		return report_data
+	if output_format == "html":
+		return _generate_html_report(report_data, include_charts)
+	if output_format == "excel":
+		return _generate_excel_report(report_data, include_charts)
+	return _generate_pdf_report(report_data, include_charts)
+
+
+def generate_sales_report(sales_data, report_type="summary", date_range=None,
+						  filters=None, grouping=None, include_charts=False,
+						  output_format="pdf"):
+	validate_report_request(sales_data, report_type, output_format)
+	sales_data = filter_sales_data(sales_data, date_range, filters)
+
+	if not sales_data:
+		print("Warning: No data matches the specified criteria")
+		if output_format == "json":
+			return {"message": "No data matches the specified criteria", "data": []}
+		return _generate_empty_report(report_type, output_format)
+
+	summary = calculate_summary(sales_data)
+	grouping_data = group_sales(sales_data, grouping, summary["total_sales"])
+	report_data = {
+		"report_type": report_type,
+		"date_generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+		"date_range": date_range,
+		"filters": filters,
+		"summary": summary,
+	}
+	if grouping_data:
+		report_data["grouping"] = grouping_data
+	if report_type == "detailed":
+		report_data["transactions"] = build_detailed_transactions(sales_data)
+	elif report_type == "forecast":
+		report_data["forecast"] = build_forecast(sales_data)
+	if include_charts:
+		report_data["charts"] = build_charts(sales_data, grouping, grouping_data)
+	return render_report(report_data, output_format, include_charts)
+```
+
+The existing `_generate_empty_report`, `_generate_html_report`,
+`_generate_excel_report`, and `_generate_pdf_report` helpers remain the
+format-specific rendering boundary.
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
