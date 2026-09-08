@@ -1,0 +1,193 @@
+Exercise 1.1: Behavior Analysis
+=======================================================================================================================================================================================================
+Questions:
+
+1. What should the score be for each priority level: LOW, MEDIUM, HIGH, and URGENT?
+
+2. What should happen when task.priority is missing or has an unexpected value?
+
+3. How should the due-date bonus work for tasks that are:
+
+overdue,
+due today,
+due within 2 days,
+due within 7 days,
+due later,
+missing a due date?
+
+4. How should task status affect the score for normal, completed, and review tasks?
+
+5. What happens when a task has multiple tags, including one or more of blocker, critical, or urgent?
+
+6. How should updated_at affect the score for a task updated recently versus one updated more than a day ago?
+
+7. Do you think these factors are independent and cumulative? For example, should an urgent, overdue, recently updated task in review receive all applicable adjustments?
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ANSWERS
+
+1. LOW = 1, MEDIUM = 2, HIGH = 4, URGENT = 6.
+
+2. I am unsure if there are any parameters for this as i don't see any function for error handling.
+
+3. 
+overdue: score += 35, 
+due today: score += 20, 
+due within 2 days: score += 15, 
+due within 7 days: score += 10, 
+due later: unsure, 
+missing a due date: unsure.
+
+4. 
+Normal: unsure,
+Completed: score -= 50,
+Review: score -= 15,
+
+5. score += 8
+
+6. score += 5
+
+7. It seems like these factors are independent and cumulative.
+
+---------------------------------------------------------------------------------------------------------------------------------
+EDGE CASES
+
+1. A task with an invalid priority value.
+2. A task with priority=None.
+3. A task with no due date.
+4. A task due exactly 2 days from now.
+5. A task due exactly 7 days from now.
+6. A task due one second in the past.
+7. A task with an empty tag list.
+8. A task with several matching tags, such as ["blocker", "critical", "urgent"].
+9. A task with tags using different capitalization, such as "Blocker".
+10. A task updated exactly 24 hours ago.
+11. A task updated slightly less than 24 hours ago.
+12. A completed task that is also overdue and tagged "blocker".
+
+=======================================================================================================================================================================================================
+Exercise 1.2: Test Planning
+
+=======================================================================================================================================
+TEST PLAN
+
+Scope
+-----
+Test calculate_task_score, sort_tasks_by_importance, and get_top_priority_tasks.
+The score tests should isolate one scoring factor at a time. Sorting and top-N
+tests should verify how the functions compose the score calculation.
+
+Test dependencies
+-----------------
+- task_priority.py: functions under test.
+- models.py: Task, TaskPriority, and TaskStatus.
+- datetime and timedelta: deterministic timestamps and due dates.
+- unittest or pytest: assertions and test execution.
+- unittest.mock.patch (or an equivalent clock-freezing tool): control
+	task_priority.datetime.now() for time-sensitive tests.
+- A task fixture/factory with neutral defaults: a known priority, ordinary
+	status, no due date, no matching tags, and updated_at older than one day.
+
+Priority 1 - Unit tests for calculate_task_score
+------------------------------------------------
+
+Test case                                      Expected outcome
+-----------                                    ----------------
+Base LOW priority                              10, when all other factors are neutral.
+Base MEDIUM priority                           20, when all other factors are neutral.
+Base HIGH priority                             40, when all other factors are neutral.
+Base URGENT priority                           60, when all other factors are neutral.
+Invalid priority or None                       Base contribution is 0; confirm whether
+																							 the wider contract expects this to be
+																							 accepted or rejected.
+Overdue due date                               Add 35.
+Due today                                      Add 20 when the controlled clock makes
+																							 days_until_due equal 0.
+Due within 2 days                              Add 15 when the controlled clock makes
+																							 days_until_due 1 or 2.
+Due within 7 days                              Add 10 when days_until_due is 3 through 7.
+Due beyond 7 days                              Add no due-date bonus.
+Missing due date                               Add no due-date bonus.
+Due-date boundaries                           Verify exactly 2 and exactly 7 use the
+																							 intended inclusive branches, and values
+																							 just beyond them use the next branch.
+Normal status                                  No status adjustment.
+REVIEW status                                  Subtract 15.
+DONE status                                    Subtract 50.
+No tags or unrelated tags                      No tag adjustment.
+One matching tag                               Add 8.
+Several matching tags                          Add 8 once, not once per matching tag.
+Case-variant matching tag                      Confirm whether matching is case-sensitive;
+																							 the current implementation is case-sensitive.
+Recent updated_at                              Add 5 when days_since_update is less than 1.
+Older updated_at                               Add no recency bonus.
+Exactly 24 hours old                           Verify the behavior at the .days boundary.
+Combined factors                               The expected score equals the base score
+																							 plus every applicable bonus and deduction.
+
+For each unit case, create one task with all unrelated factors neutral. Calculate
+the expected numeric score before writing the assertion. For date cases, control
+datetime.now() rather than relying on the machine clock. Also test missing task
+attributes only if the intended contract includes validation; otherwise document
+that the function currently raises AttributeError or TypeError for malformed tasks.
+
+Priority 2 - Unit/integration tests for sorting
+------------------------------------------------
+
+Test case                                      Expected outcome
+-----------                                    ----------------
+Distinct scores                                Tasks are returned highest score first.
+Equal scores                                   Original input order is preserved because
+																							 Python's sorted() is stable and there is no
+																							 explicit tie-breaker.
+Empty input                                    Return an empty list.
+One task                                       Return a one-item list containing that task.
+Input preservation                              The original list order is unchanged.
+Object identity                                Returned elements are the same task objects,
+																							 not copies.
+
+Use three or more tasks whose scores are clearly different. This is an integration
+test of sort_tasks_by_importance with calculate_task_score, while the empty, one-item,
+tie, and input-preservation checks are focused unit cases for sorting behavior.
+
+Priority 3 - Unit/integration tests for get_top_priority_tasks
+---------------------------------------------------------------
+
+Test case                                      Expected outcome
+-----------                                    ----------------
+Default limit                                  Return the five highest-ranked tasks, or
+																							 all tasks when fewer than five exist.
+Explicit positive limit                        Return exactly that many highest-ranked
+																							 tasks when enough tasks exist.
+Limit larger than task count                    Return all available tasks.
+Limit zero                                     Return an empty list.
+Negative limit                                 Decide and document the contract. Current
+																							 Python slicing produces all but the final
+																							 absolute number of items, which may not be
+																							 the intended API behavior.
+Empty input                                    Return an empty list for supported limits.
+Ordering                                       Returned tasks match the leading items from
+																							 sort_tasks_by_importance.
+Object identity                                Returned tasks are the original objects.
+
+These tests integrate get_top_priority_tasks with sort_tasks_by_importance and,
+indirectly, calculate_task_score. Use a list larger than the requested limit so the
+selection behavior is observable.
+
+Time and boundary-test strategy
+-------------------------------
+- Patch datetime in the task_priority module, where it is looked up.
+- Use one fixed reference time for both due_date and updated_at assertions.
+- Set updated_at to an older time in tests that are measuring another factor.
+- Include values exactly on and just outside each comparison boundary.
+- Avoid asserting against datetime.now() from the test and implementation separately;
+	that can make tests flaky near a day boundary.
+
+Completion criteria
+-------------------
+- Every Priority 1 case has an isolated input and an explicit numeric expected score.
+- Boundary tests cover due-date values at 2 and 7 days and just beyond each.
+- Sorting verifies descending order, ties, empty input, and non-mutation.
+- Top-N tests cover default, positive, zero, oversized, and agreed negative limits.
+- Time-dependent tests use a controlled clock and pass consistently across runs.
+
