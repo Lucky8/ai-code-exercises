@@ -1,3 +1,105 @@
 Exercise 4.1: Testing the Full Workflow
 ----------------------------------------------------------------------------------------------------------
+integration test:
 
+```python
+from datetime import datetime, timedelta
+
+from your_module import (
+    Task,
+    TaskPriority,
+    TaskStatus,
+    calculate_task_score,
+    sort_tasks_by_importance,
+    get_top_priority_tasks,
+)
+
+
+def test_task_prioritization_functions_work_together():
+    now = datetime.now()
+
+    tasks = [
+        Task(
+            title="Low priority task",
+            priority=TaskPriority.LOW,
+            due_date=now + timedelta(days=10),
+            status=TaskStatus.OPEN,
+            tags=[],
+            updated_at=now - timedelta(days=3),
+        ),
+        Task(
+            title="Urgent overdue task",
+            priority=TaskPriority.URGENT,
+            due_date=now - timedelta(days=1),
+            status=TaskStatus.OPEN,
+            tags=["critical"],
+            updated_at=now,
+        ),
+        Task(
+            title="High priority due soon",
+            priority=TaskPriority.HIGH,
+            due_date=now + timedelta(days=1),
+            status=TaskStatus.OPEN,
+            tags=[],
+            updated_at=now - timedelta(days=2),
+        ),
+        Task(
+            title="Medium priority review task",
+            priority=TaskPriority.MEDIUM,
+            due_date=now + timedelta(days=3),
+            status=TaskStatus.REVIEW,
+            tags=[],
+            updated_at=now - timedelta(days=2),
+        ),
+        Task(
+            title="Urgent completed task",
+            priority=TaskPriority.URGENT,
+            due_date=now + timedelta(days=1),
+            status=TaskStatus.DONE,
+            tags=["urgent"],
+            updated_at=now,
+        ),
+        Task(
+            title="High priority blocker",
+            priority=TaskPriority.HIGH,
+            due_date=now + timedelta(days=7),
+            status=TaskStatus.OPEN,
+            tags=["blocker"],
+            updated_at=now,
+        ),
+    ]
+
+    # Verify the individual scores that drive the integration.
+    scores = {
+        task.title: calculate_task_score(task)
+        for task in tasks
+    }
+
+    assert scores["Urgent overdue task"] == 103
+    assert scores["High priority due soon"] == 55
+    assert scores["High priority blocker"] == 58
+
+    # Verify that sorting uses calculate_task_score() correctly.
+    sorted_tasks = sort_tasks_by_importance(tasks)
+
+    assert [task.title for task in sorted_tasks] == [
+        "Urgent overdue task",
+        "High priority blocker",
+        "High priority due soon",
+        "Urgent completed task",
+        "Medium priority review task",
+        "Low priority task",
+    ]
+
+    # Verify that get_top_priority_tasks() uses the same ordering
+    # and returns exactly the requested number of tasks.
+    top_tasks = get_top_priority_tasks(tasks, limit=3)
+
+    assert [task.title for task in top_tasks] == [
+        "Urgent overdue task",
+        "High priority blocker",
+        "High priority due soon",
+    ]
+
+    assert len(top_tasks) == 3
+```
