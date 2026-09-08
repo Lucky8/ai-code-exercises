@@ -1,16 +1,219 @@
 Activity 1: Idiomatic Code Transformation
 
+Original:
+```python
+def calculate(principal, rate, time, additional=0, frequency=12):
+    result = principal
+    rate_per_period = rate / 100 / frequency
+    total_periods = time * frequency
 
+    for period in range(1, total_periods + 1):
+        interest = result * rate_per_period
+        result += interest
+
+        if period % frequency == 0 and period < total_periods:
+            result += additional
+
+    return {
+        "final_amount": round(result, 2),
+        "interest_earned": round(
+            result - principal - (additional * (time - 1)), 2
+        ),
+        "total_contributions": principal + (additional * (time - 1))
+    }
+```
+Improved version:
+```python
+def calculate(
+    principal: float,
+    rate: float,
+    time: int,
+    *,
+    additional_contribution: float = 0,
+    frequency: int = 12,
+) -> dict[str, float]:
+    balance = principal
+    periodic_rate = rate / 100 / frequency
+    periods = time * frequency
+    contributions = additional_contribution * (time - 1)
+
+    for period in range(1, periods + 1):
+        interest = balance * periodic_rate
+        balance += interest
+
+        if period % frequency == 0 and period < periods:
+            balance += additional_contribution
+
+    return {
+        "final_amount": round(balance, 2),
+        "interest_earned": round(
+            balance - principal - contributions, 2
+        ),
+        "total_contributions": principal + contributions,
+    }
+```
+The biggest improvement is that someone unfamiliar with your code can understand it almost immediately:
+principal
+    ↓
+balance
+    ↓
+periodic interest
+    ↓
+additional contribution
+    ↓
+final balance
 
 --------------------------------------------------------------------------------------------------------
 Activity 2: Code Quality Detective
 
+Checklist of issues:
+| Issue                                          | Severity  | Why it matters                                                          |
+| ---------------------------------------------- | --------- | ----------------------------------------------------------------------- |
+| `if mark1 or mark2 or mark3 < 40` is incorrect | 🔴 High   | Python does not interpret this as "if any mark is below 40"             |
+| Output says average is a **grade**             | 🔴 High   | You calculate a numeric average but print the letter grade in its place |
+| `round()` removes useful precision             | 🟡 Medium | A 79.5 average becomes 80, potentially changing the grade               |
+| No input validation                            | 🟡 Medium | Users can enter negative marks, marks over 100, or non-numeric values   |
+| Variable `att` is unclear                      | 🟡 Medium | A name like `attention_status` communicates intent better               |
+| `low_val` doesn't identify the subject         | 🟡 Medium | You know the lowest score, but not which subject received it            |
+| Inconsistent spacing                           | 🟢 Low    | `mark1+mark2+mark3` is less readable than `mark1 + mark2 + mark3`       |
+| Comments could be more descriptive             | 🟢 Low    | Comments such as `# outputs` don't add much information                 |
+| Everything is in one block                     | 🟡 Medium | Functions would make the program easier to test and maintain            |
+| Repeated individual variables                  | 🟢 Low    | A list/dictionary would make the code easier to extend to more subjects |
+
+
+Improved version:
+
+```python
+# Collect learner inputs
+name = input("What is the learner's name: ")
+
+mark1 = float(input("Subject 1 mark: "))
+mark2 = float(input("Subject 2 mark: "))
+mark3 = float(input("Subject 3 mark: "))
+
+# Store marks in a list
+marks = [mark1, mark2, mark3]
+
+# Calculate the average
+average = sum(marks) / len(marks)
+
+# Assign a grade
+if average >= 80:
+    grade = "A"
+elif average >= 70:
+    grade = "B"
+elif average >= 60:
+    grade = "C"
+elif average >= 50:
+    grade = "D"
+else:
+    grade = "F"
+
+# Assign pass/fail status
+status = "PASS" if average >= 50 else "FAIL"
+
+# Find the lowest mark
+lowest_mark = min(marks)
+
+# Check whether any subject needs attention
+if lowest_mark < 40:
+    attention = "Needs attention"
+else:
+    attention = "Well done!"
+
+# Display results
+print(
+    f"Learner: {name}\n"
+    f"Average: {average:.1f}%\n"
+    f"Grade: {grade}\n"
+    f"Status: {status}\n"
+    f"Lowest mark: {lowest_mark}\n"
+    f"Assessment: {attention}"
+)
+```
+Key learnings:
+
+Readability, performance and maintainability
+| Category            |    Rating | Comments                                                             |
+| ------------------- | --------: | -------------------------------------------------------------------- |
+| **Readability**     | ⭐⭐⭐⭐☆ 4/5 | Easy to follow and comments explain the stages                       |
+| **Performance**     | ⭐⭐⭐⭐⭐ 5/5 | Extremely small dataset; performance is effectively irrelevant       |
+| **Maintainability** | ⭐⭐⭐☆☆ 3/5 | Works for 3 subjects, but becomes awkward to extend                  |
+| **Correctness**     | ⭐⭐⭐☆☆ 3/5 | The `if mark1 or mark2 or mark3 < 40` bug is significant             |
+| **Python idioms**   | ⭐⭐⭐☆☆ 3/5 | Good foundation, but several opportunities for more idiomatic Python |
+
+What to learn next:
+1. Lists — marks = [mark1, mark2, mark3]
+2. Built-in functions — sum(), min(), max(), len()
+3. Conditional expressions — x if condition else y
+4. Functions — separating logic into reusable pieces
+5. Input validation — handling invalid marks
+6. Dictionaries — associating subjects with marks
+7. Loops — collecting an arbitrary number of subjects
+8. Exception handling — try/except
+9. Type hints — making function expectations clearer
+10. Unit testing — automatically testing your grading logic
+
+The most important lesson from your current code is probably the Boolean-expression bug. Understanding how Python evaluates if conditions is more valuable than trying to make this tiny program faster.
 
 
 --------------------------------------------------------------------------------------------------------
 Activity 3: Understanding Language Feature
 
+What are Python decorators?
 
+A decorator is essentially a function that takes another function as input and returns a new function with additional behavior.
+
+Think of it like wrapping a gift:
+Original function
+       ↓
+   [Decorator]
+       ↓
+Enhanced function
+
+A practical example: measuring execution time
+One of the most useful decorator examples for a developer is timing functions:
+
+import time
+
+def timer(func):
+
+    def wrapper(*args, **kwargs):
+        start = time.time()
+
+        result = func(*args, **kwargs)
+
+        end = time.time()
+
+        print(f"{func.__name__} took {end - start:.4f} seconds")
+
+        return result
+
+    return wrapper
+
+Then:
+
+@timer
+def calculate():
+    total = 0
+
+    for i in range(1_000_000):
+        total += i
+
+    return total
+
+calculate()
+
+Three practical use cases:
+
+Use Case 1 — Logging
+Decorators are excellent for automatically logging function calls.
+
+Use Case 2 — Authentication / authorization
+This becomes particularly valuable when building web applications.
+
+Use Case 3 — Performance monitoring
+This is especially relevant to the type of programming and data-related projects you've been working on.
 
 --------------------------------------------------------------------------------------------------------
 
