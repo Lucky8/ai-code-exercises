@@ -22,3 +22,33 @@ Part 1: Create Your Learning Journey Plan
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Part 2: Apply the Four-Step Prompting Strategy
+
+Step 1: Conceptual Understanding
+
+Step 2: Step-by-Step Breakdown
+
+Step 3: Guided Implementation
+
+Step 4: Understanding Verification
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Part 3: Practice Advanced Prompting Techniques
+
+Using Context Effectively
+
+Promoting Deep Understanding
+
+Learning Through Teaching
+
+Using a Tutor
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Part 4: Build a Mini-Project
+
+Define a simple project
+
+Create a project specification
+
+Implement your project
+
+Review and refactor
