@@ -1,0 +1,15 @@
+Exercise 2.1: Writing Your First Test
+1. Simple Test:
+
+def test_calculate_task_score_high_priority():
+    task = Task(
+        priority=TaskPriority.HIGH,
+        updated_at=datetime.now(),
+    )
+
+    score = calculate_task_score(task)
+
+    assert score == 45  # 40 priority + 5 recently updated
+
+-------------------------------------------------------------------------------------------------------------------
+3. 
