@@ -1,0 +1,63 @@
+Part 4: Building Understanding Through Implementation
+
+Implemented the database-backed logging feature directly in the supplied Python code.
+
+### What changed
+
+**`auth_api.py`**
+
+* Added a SQLite database using Python's built-in `sqlite3`.
+* Added an `audit_logs` table with:
+
+  * `id`
+  * `username`
+  * `action`
+  * `timestamp`
+* Added `log_action()` to centralize audit logging.
+* Successful logins record `LOGIN_SUCCESS`.
+* Failed logins record `LOGIN_FAILURE`.
+* Added `is_admin` to the existing user model.
+* Added `require_admin()` using the same `Depends()` pattern already used for authentication.
+* Added `POST /admin/actions` as an example admin operation that gets logged.
+* Added `GET /admin/logs` for administrators to inspect audit logs.
+
+The existing authentication flow remains based on `OAuth2PasswordBearer`, JWTs, and `get_current_user()`. 
+
+**`test_auth_api.py`**
+
+* Preserved the existing authentication tests.
+* Added tests for:
+
+  * successful-login logging
+  * failed-login logging
+  * admin-action logging
+  * retrieving logs through the protected endpoint
+
+The tests continue using FastAPI's `TestClient`, consistent with the original test suite. 
+
+### One testing limitation
+
+I successfully checked that the modified Python files compile, but I could not execute the full pytest suite because the environment doesn't have the existing `passlib` dependency installed, and package installation isn't available in this environment. I **did not replace `passlib` with a different authentication implementation**, because that would change the existing architecture rather than extend it.
+
+I've also corrected the test database setup so each test suite uses an actual temporary SQLite file rather than `:memory:`; separate SQLite connections would otherwise create separate in-memory databases.
+
+### Files
+PATH: use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Understanding FastAPI Code Patterns\auth_api.py
+      use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Understanding FastAPI Code Patterns\test_auth_api.py
+
+The resulting architecture is deliberately small:
+
+```text
+Login
+  │
+  ├── valid ──────> LOGIN_SUCCESS ──┐
+  │                                  │
+  └── invalid ────> LOGIN_FAILURE ──┤
+                                     ▼
+                                SQLite audit_logs
+                                     ▲
+                                     │
+Admin action ───> ADMIN_ACTION ─────┘
+```
+
+This keeps the new feature aligned with the existing code's main pattern: **small functions for individual responsibilities + FastAPI dependencies for cross-cutting concerns**.
