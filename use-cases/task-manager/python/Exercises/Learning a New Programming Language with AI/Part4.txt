@@ -1,0 +1,194 @@
+Part 4: Build a Mini-Project
+
+Define a simple project:
+    A data processing script
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Create a project specification
+
+## Project: Sales Data Processing Script
+
+### Goal
+
+Build a command-line JavaScript script that reads a CSV file of sales records, validates and transforms the data, calculates summary statistics, and writes a JSON report.
+
+### Example Input
+
+```text
+date,product,quantity,unitPrice
+2026-01-05,Notebook,3,4.50
+2026-01-06,Pen,10,1.25
+```
+
+### Expected Output
+
+The script should produce a JSON report containing:
+
+- Total number of valid records
+- Total revenue
+- Revenue grouped by product
+- The best-selling product by quantity
+- A list of invalid rows with useful error messages
+
+### 1. Small, Manageable Components
+
+1. **Input reader:** Accept an input path from command-line arguments and read the file asynchronously.
+2. **CSV parser:** Convert each row into a JavaScript object without assuming that CSV values are already numbers.
+3. **Validator:** Check required fields, dates, positive quantities, and non-negative prices.
+4. **Normalizer:** Convert text values to the intended types, such as `Number(quantity)` and `Number(unitPrice)`.
+5. **Calculator:** Compute revenue for each valid record and aggregate totals by product.
+6. **Report builder:** Create a predictable JSON object containing summaries and invalid-row details.
+7. **Output writer:** Write the report asynchronously to a specified JSON file.
+8. **CLI boundary:** Display usage instructions, handle errors, and set an appropriate process exit code.
+
+Build and test these components one at a time. Start with a small hard-coded array, then add file reading, then parsing, validation, aggregation, and output.
+
+### 2. Recommended Libraries and Framework Components
+
+- **Node.js:** Use the runtime for command-line execution and built-in file-system access.
+- **`node:fs/promises`:** Read and write files with promise-based asynchronous APIs.
+- **`node:path`:** Build platform-independent file paths.
+- **`node:process`:** Read command-line arguments and set exit codes.
+- **`csv-parse`:** Parse CSV correctly, including quoted values, commas inside fields, and line endings. Avoid splitting rows manually with `split(",")`.
+- **`zod` or another validation library:** Optional for declarative validation once manual validation becomes repetitive.
+- **Node's built-in test runner:** Use `node:test` and `node:assert/strict` for focused unit tests without adding a test framework initially.
+- **ES modules:** Use `"type": "module"` in `package.json` so files can use `import` and `export`.
+
+No web framework is necessary for this project. A framework would add complexity without solving the core data-processing problem.
+
+### 3. Key Files and Modules
+
+```text
+sales-data-processor/
+├── package.json
+├── README.md
+├── data/
+│   └── sales.csv
+├── src/
+│   ├── cli.js
+│   ├── readInput.js
+│   ├── parseSales.js
+│   ├── validateSales.js
+│   ├── aggregateSales.js
+│   └── writeReport.js
+└── test/
+	├── parseSales.test.js
+	├── validateSales.test.js
+	└── aggregateSales.test.js
+```
+
+Suggested responsibilities:
+
+- `cli.js`: Orchestrate the workflow and translate failures into user-facing messages.
+- `readInput.js`: Export an async function that reads a file and returns its text.
+- `parseSales.js`: Export a pure function that parses CSV records into raw objects.
+- `validateSales.js`: Export pure functions that return valid records and structured validation errors.
+- `aggregateSales.js`: Export a pure function that receives valid records and returns the report summary.
+- `writeReport.js`: Export an async function that serializes and writes JSON.
+
+Prefer small functions and plain objects over classes at first. Add a class only when an object needs meaningful state and behavior that cannot be expressed clearly with functions, such as a reusable streaming processor.
+
+### 4. Potential Challenges Coming from Python
+
+- **File I/O is commonly asynchronous:** Use `await readFile(...)` from `node:fs/promises`; do not assume a synchronous file call is the normal choice in a server or interactive application.
+- **CSV values start as strings:** JavaScript will not automatically turn `"10"` into the number `10` in the record object. Convert and validate explicitly.
+- **Avoid coercive equality:** Use `===` and `!==` when checking values. Do not let expressions such as `quantity == 0` hide invalid strings or empty values.
+- **Numeric behavior differs:** JavaScript uses `Number` for ordinary numbers, and decimal money calculations can have floating-point rounding issues. Consider storing currency as integer cents.
+- **Missing values differ:** Distinguish `undefined`, `null`, an empty string, and a missing object property rather than treating them all like Python's `None`.
+- **Object access differs:** Use `record.unitPrice` or `record["unitPrice"]`; remember that parsed CSV data is not a typed dataclass.
+- **Modules require explicit exports:** A function in one file is not automatically available in another. Export it and import it deliberately.
+- **Errors from promises must be handled:** An async function returns a promise, so the CLI entry point must await it or attach a rejection handler.
+- **Array methods create a different style:** `map`, `filter`, and `reduce` are useful, but use readable loops when aggregation logic becomes difficult to follow.
+- **Mutation is easy to introduce:** Avoid changing input records while calculating the report unless that behavior is intentional and tested.
+- **Node and browser APIs differ:** This script runs in Node.js, so use Node's file-system APIs rather than browser APIs such as `document` or `localStorage`.
+
+### Suggested Implementation Order
+
+1. Create `package.json` and run a script that prints a parsed command-line path.
+2. Read a text file with `node:fs/promises` and handle a missing-file error.
+3. Parse two or three known rows and explicitly convert numeric fields.
+4. Add validation tests for missing, empty, non-numeric, negative, and valid values.
+5. Implement revenue and product aggregation as a pure function.
+6. Build the JSON report and write it to disk.
+7. Add end-to-end CLI tests with a valid file and a file containing invalid rows.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Implement your project
+
+sales data processor architecture:
+sales-data-processor/
+├── package.json
+├── README.md
+├── data/
+│   └── sales.csv
+├── src/
+│   ├── cli.js
+│   ├── readInput.js
+│   ├── parseSales.js
+│   ├── validateSales.js
+│   ├── aggregateSales.js
+│   └── writeReport.js
+└── test/
+    ├── parseSales.test.js
+    ├── validateSales.test.js
+    └── aggregateSales.test.js
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Review and refactor
+
+## Review of the Completed JavaScript Project
+
+### Findings
+
+1. **Protect dynamic product keys.** Using plain `{}` objects for product totals can produce incorrect results for product names such as `__proto__`, `constructor`, or `toString`. Prefer `Map` for dynamic keys, or use `Object.create(null)` when an object is required.
+2. **Consider streaming for large CSV files.** Synchronous CSV parsing and reading the entire file are appropriate for small inputs, but large files can consume substantial memory and block the Node.js event loop. Use the streaming parser API when the input size grows.
+3. **Add end-to-end CLI tests.** Unit tests cover parsing, validation, and aggregation, but the complete input-to-report workflow should also test missing files, invalid CSV, output-directory creation, write failures, and process exit codes.
+4. **Add continuous integration.** Configure GitHub Actions to run the test suite on the supported Node.js versions.
+
+### JavaScript Idioms and Refactoring Opportunities
+
+The project already uses good JavaScript practices:
+
+- ES modules with explicit `import` and `export`
+- `async`/`await` for file operations
+- Native `node:test` and `node:assert/strict`
+- Small, mostly pure functions
+- `const` bindings, destructuring, and nullish coalescing
+- Integer cents for money calculations
+- Explicit validation instead of relying on type coercion
+
+Useful refactors:
+
+- Replace complex `forEach` callbacks with `for...of` loops when validation has branching and multiple side effects.
+- Move shared constants, such as required columns and error messages, into a dedicated module.
+- Export the CLI `main` function separately so orchestration can be tested directly.
+- Replace dynamic aggregation objects with `Map`.
+- Add JSDoc or TypeScript types to document the shapes of raw records, valid records, and reports.
+- Add ESLint and Prettier to enforce consistent JavaScript style automatically.
+
+### Python Patterns to Adjust
+
+- Do not assume every dictionary-like JavaScript object is safe for arbitrary keys; use `Map` when keys come from input.
+- Do not expect CSV libraries to infer numbers. Explicit conversion and validation are necessary, and the project handles this well.
+- Remember that synchronous parsing can block Node.js's event loop.
+- Return or await promises deliberately; asynchronous JavaScript operations do not produce their final values immediately.
+- Avoid adding classes automatically. The current functional module structure is a good fit for this data pipeline.
+- Keep treating money as integer cents rather than relying on floating-point decimal arithmetic.
+- Distinguish `undefined`, `null`, empty strings, and missing properties instead of treating them all as Python's `None`.
+
+### Recommended Next Steps
+
+1. Replace product aggregation objects with `Map` and add tests for special product names.
+2. Add end-to-end CLI tests and verify process exit codes.
+3. Add ESLint, Prettier, and a GitHub Actions workflow.
+4. Implement streaming CSV processing for large inputs.
+5. Add runtime validation for external data with a library such as Zod.
+6. Learn Node.js streams, backpressure, and worker threads.
+7. Expose the processor through an HTTP API as a second project.
+8. Explore TypeScript once the JavaScript data pipeline feels comfortable.
+
+Overall, the project has a strong structure. The highest-value refactor is protecting dynamic product keys with `Map`, followed by broader integration testing and scalable file processing.
+

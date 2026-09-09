@@ -1,0 +1,131 @@
+Part 3: Practice Advanced Prompting Techniques
+
+Promoting Deep Understanding:
+
+## Further Analysis: Performance, Alternatives, and Scale
+
+### 1. Performance Implications
+
+- **The network request dominates the runtime.** The cost of `await getTask(taskId)` is normally determined by DNS, connection setup, server processing, and response transfer, not by the small JavaScript functions around it.
+- **`async`/`await` does not make the request faster.** It prevents this function from blocking the JavaScript thread while the browser waits for I/O, allowing other events and rendering work to proceed.
+- **The function has small promise overhead.** Creating and settling promises adds a little scheduling work, but that cost is usually negligible compared with an HTTP request.
+- **The code performs one request and one JSON parse.** Parsing a very large response can use noticeable CPU and memory, and JSON parsing itself runs synchronously once the body is available.
+- **Logging can be expensive or noisy at scale.** `console.error` is useful during development, but production applications should use structured, sampled logging and an error-monitoring system.
+- **The current code has no caching, deduplication, timeout, or cancellation.** Repeated calls for the same task can create repeated work, and stale requests can waste bandwidth.
+
+The main performance question is therefore not whether to replace `async`/`await`. It is whether requests are duplicated, responses are too large, or the server and network are the bottleneck.
+
+### 2. Alternative JavaScript Approaches
+
+#### Promise Chaining
+
+The same workflow can be expressed with `.then()` and `.catch()`:
+
+```javascript
+function showTask(taskId) {
+	return getTask(taskId)
+		.then((task) => {
+			console.log(task.title);
+			return task;
+		})
+		.catch((error) => {
+			console.error("Could not load task:", error);
+			throw error;
+		});
+}
+
+showTask(42).catch(() => {
+	// Handle the failure at the application boundary.
+});
+```
+
+This is not inherently faster. It makes promise transformations explicit, and it can be useful when composing a pipeline, but `async`/`await` is usually easier to read for sequential steps and `try`/`catch` is usually easier to debug.
+
+#### A Direct Promise-Preserving Wrapper
+
+If `showTask` adds no meaningful asynchronous work or presentation behavior, the caller could use `getTask` directly:
+
+```javascript
+getTask(42)
+	.then((task) => console.log(task.title))
+	.catch((error) => console.error("Could not load task:", error));
+```
+
+This is shorter, but separating fetching from UI behavior is often better once the application grows.
+
+#### Callback-Based APIs
+
+Older JavaScript APIs may accept success and failure callbacks. Callback style is still important when integrating legacy code, but it is generally less convenient for multiple dependent operations because nesting can become difficult to follow. Prefer promises for new APIs.
+
+### 3. Changes Needed at 10x Scale
+
+“10x” could mean ten times more users, requests, task size, or simultaneous operations. The exact design depends on which dimension grows, but these changes are likely:
+
+1. **Control concurrency:** Do not start thousands of requests at once. Use a queue or a concurrency limit when loading many tasks.
+2. **Cache and deduplicate:** Reuse recently loaded tasks and share an in-flight promise when multiple callers request the same ID.
+3. **Paginate or batch:** Request only the visible task data, or use a batch endpoint instead of making one request per task.
+4. **Add timeouts and cancellation:** Use `AbortController` so navigation, component disposal, or a newer request can stop obsolete work.
+5. **Use retries carefully:** Retry transient network or server failures with exponential backoff and a limit. Do not blindly retry validation errors or every 4xx response.
+6. **Move state management upward:** Track loading, success, empty, error, and retry states in a UI or data-access layer rather than hiding all outcomes inside `showTask`.
+7. **Improve observability:** Record latency, status codes, failure rates, request IDs, and cancellation counts without logging sensitive data.
+8. **Protect the backend:** Add server-side rate limits, authentication, authorization, pagination, and appropriate database indexes. A client-side optimization cannot fix an overloaded service.
+9. **Reduce payload cost:** Select only required fields, enable compression, and avoid parsing or rendering data that is not visible.
+10. **Test load and failure behavior:** Measure p95/p99 latency, concurrent requests, slow responses, retries, and partial failures with realistic load tests.
+
+A scalable client function should remain small; caching, request coordination, retries, and state management should live in reusable data-access or application infrastructure rather than being duplicated in every view.
+
+### 4. If `[ANOTHER FEATURE]` Means Promise Chaining
+
+The `.then()`/`.catch()` version above is the direct alternative to `async`/`await`:
+
+- `async function showTask(...)` becomes `function showTask(...)` because it returns the promise produced by the chain explicitly.
+- `await getTask(taskId)` becomes `.then((task) => { ... })`.
+- `try`/`catch` becomes `.catch((error) => { ... })`.
+- `return task` inside the `.then()` callback passes the value to the next promise in the chain.
+- `throw error` inside `.catch()` keeps the returned promise rejected for the outer application boundary.
+
+The runtime behavior and network cost are essentially the same. Choose `async`/`await` for readable sequential workflows and promise methods when composing, transforming, or coordinating promise pipelines. If a different feature was intended, such as `AbortController`, React hooks, or Web Workers, the comparison should be adjusted to that feature's purpose.
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Using a Tutor
+
+## Tutor Exercise: JavaScript Type Coercion and Equality
+
+Let's begin with a prediction exercise. Do not run the code yet. Predict what each expression evaluates to in JavaScript, and whether it would behave the same way in Python.
+
+```javascript
+1. "5" == 5
+2. "5" === 5
+3. 0 == false
+4. 0 === false
+5. null == undefined
+6. null === undefined
+7. [] == false
+8. [] === false
+```
+
+Record each answer in this format:
+
+```text
+1. true/false - reason
+2. true/false - reason
+```
+
+Guiding questions:
+
+1. Which JavaScript equality operator can convert values before comparing them?
+2. Which operator compares both value and type without that conversion?
+3. Which JavaScript operator is closest to Python's ordinary `==`?
+4. Which JavaScript operator is stricter about types?
+5. How is JavaScript's `===` different from Python's `is`?
+
+Hints:
+
+- `==` may perform type coercion before comparing values.
+- `===` compares without that coercion.
+- Python has ordinary equality with `==` and identity comparison with `is`; they answer different questions.
+- In normal JavaScript code, prefer `===` and `!==` unless you have a specific reason to use coercive equality.
+
+After making your predictions, run the expressions and compare the results with your reasoning. For each surprising result, explain what conversion or type difference caused it.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
