@@ -1,0 +1,127 @@
+Part 2: Understanding Design Choices
+
+Goal: Understand FastAPI's design philosophy and how its design choices should influence the
+structure of an application.
+
+FastAPI's central idea is to use ordinary, modern Python declarations as the source of truth for
+an API. A route function's type annotations and Pydantic models describe what the endpoint accepts,
+what it returns, and what should appear in the generated API schema. FastAPI then connects those
+declarations to parsing, validation, serialization, dependency injection, editor support, and
+documentation.
+
+1. Why use Pydantic instead of a FastAPI-specific validation system?
+
+FastAPI chose Pydantic because it could build on a mature, focused library instead of creating and
+maintaining a second validation language. Pydantic already provided several capabilities FastAPI
+needed:
+
+- Declarative models built from normal Python type annotations.
+- Conversion and validation of incoming data, including nested models and constrained values.
+- Clear, structured validation errors that can be returned to API clients.
+- Serialization and JSON Schema generation for API contracts.
+- A library that can also be used outside FastAPI, in services, command-line tools, and tests.
+
+This separation gives each project a clear responsibility: Pydantic models describe and validate
+data, while FastAPI connects those models to HTTP requests, responses, dependency resolution, and
+OpenAPI. It also avoids forcing developers to learn a framework-only validation syntax. The result
+is less duplicated code and a model definition that can serve as both executable validation and
+documentation metadata.
+
+Pydantic is not a replacement for business rules. A model can verify that `priority` is an integer
+between 0 and 5, but a service should decide whether a particular user is allowed to change a
+task's priority. Keep transport and shape validation in schemas; keep domain rules in services or
+domain objects.
+
+2. What problem does automatic API documentation solve?
+
+An API has a contract: its paths, HTTP methods, parameters, request bodies, response bodies, and
+possible errors. In many frameworks, developers had to maintain that contract separately in prose,
+example files, or hand-written documentation. Those documents could become incomplete or drift away
+from the implementation whenever a route changed.
+
+FastAPI generates an OpenAPI schema from the same route signatures, type hints, Pydantic models, and
+response declarations used to run the application. Swagger UI and ReDoc then present that schema
+as interactive documentation. This addresses three practical problems:
+
+- Accuracy: the documented request and response shapes are derived from application code.
+- Discoverability: developers can inspect and try endpoints without first reading the entire codebase.
+- Integration: OpenAPI can support client generation, contract checks, and tooling for API consumers.
+
+Automatic documentation does not eliminate design decisions or testing. It documents what the code
+declares, so vague models, missing response models, and undocumented business behavior still need
+attention. It does make the route declaration a useful, visible API contract instead of a separate
+piece of documentation that must be synchronized manually.
+
+3. Why use type hints so extensively?
+
+FastAPI uses type hints because they are already part of Python and can serve several purposes at
+once. For example:
+
+		@app.get("/tasks/{task_id}", response_model=TaskResponse)
+		async def get_task(task_id: int, limit: int = 20) -> TaskResponse:
+				...
+
+From this declaration, FastAPI and its surrounding tools can infer that:
+
+- `task_id` is a path value that should be parsed as an integer.
+- `limit` is a query value with an integer type and a default.
+- The endpoint returns the `TaskResponse` shape.
+- The editor and static type checker can provide completion and detect mismatches.
+- OpenAPI documentation can describe the endpoint without a second schema language.
+
+This creates a single source of truth and makes the function signature communicate its contract to
+both humans and tools. Type hints also improve refactoring, code review, test readability, and the
+ability to recognize incorrect values before runtime.
+
+Type hints are not magic correctness guarantees. They do not check authorization, database state,
+or every business invariant. Use Pydantic constraints and explicit service logic for runtime rules,
+and use a type checker when static analysis is valuable.
+
+4. Why an async-first approach?
+
+FastAPI was designed around ASGI and asynchronous I/O because modern APIs often spend much of their
+time waiting for external systems: databases, HTTP services, queues, files, and clients. With
+appropriate async libraries, one process can continue handling other requests while one operation
+is waiting. This can improve throughput and responsiveness for I/O-heavy workloads.
+
+Flask grew around the synchronous WSGI model, where a request generally occupies a worker while the
+handler runs. Synchronous code is still useful and often simpler, especially for CPU-bound work or
+applications using synchronous libraries. FastAPI supports regular `def` path operations too, but
+an `async def` handler should use non-blocking libraries for the work it awaits. Calling a blocking
+database or HTTP client directly from an async handler can undermine the benefit of the async model.
+
+The motivation was not that asynchronous code is always faster. It was to make concurrent I/O a
+first-class path while supporting the broader ASGI ecosystem, including WebSockets and long-lived
+connections. Choose async when the workload and dependencies benefit from it; do not add `async`
+merely as decoration.
+
+5. How the philosophy should shape application structure
+
+FastAPI's design encourages explicit boundaries and thin HTTP layers:
+
+- Put request and response contracts in Pydantic schemas. Use separate input and output models when
+	clients may submit different fields from those the API returns.
+- Keep route functions focused on HTTP translation: receive validated values, call a service, and
+	return a declared response.
+- Put business rules in services or domain objects rather than hiding them in route declarations or
+	Pydantic field validators.
+- Group related endpoints in `APIRouter` modules and include those routers from the application
+	entry point.
+- Use `Depends()` for reusable route-level requirements such as authentication, database sessions,
+	and service construction. Use middleware for behavior that should wrap most or all requests.
+- Select async database, HTTP, and messaging libraries when handlers are asynchronous. Keep blocking
+	work out of the event loop, or isolate it deliberately.
+- Treat the generated OpenAPI document as a contract. Test success cases, validation failures,
+	authorization failures, and response shapes rather than relying on documentation alone.
+
+A useful mental model is:
+
+		HTTP request -> typed parameter resolution -> Pydantic validation -> route -> service ->
+		declared response model -> OpenAPI-described response
+
+In short, FastAPI favors composition over a large built-in application stack. It uses established
+Python tools, explicit types, and an ASGI runtime to make API contracts visible and reusable. The
+tradeoff is that you must choose and structure your own database, authentication, migrations, and
+business layers. A well-structured FastAPI application keeps those choices explicit instead of
+letting framework magic or unvalidated dictionaries spread across the codebase.
+
