@@ -1,0 +1,170 @@
+Part 1: Framework Comparison
+
+Goal: Create a personal translation table between familiar web-framework concepts and their
+FastAPI equivalents.
+
+1. FastAPI and Flask: similar concepts and fundamental differences
+
+| Concept | Flask | FastAPI | Translation |
+| --- | --- | --- | --- |
+| Application | `Flask(__name__)` creates the application object. | `FastAPI()` creates the application object. | Both objects hold routes and application configuration. |
+| Route | `@app.route("/tasks", methods=["GET"])` or `@app.get("/tasks")`. | `@app.get("/tasks")`. | A decorator connects an HTTP method and path to a Python function. |
+| Handler | A view function returns a string, dictionary, `Response`, or template response. | A path operation function returns data, normally serialized as JSON. | Both call Python code for a matching request. |
+| Path parameter | `<int:task_id>` in `/tasks/<int:task_id>`. | `{task_id}` in `/tasks/{task_id}`, with `task_id: int` providing conversion and validation. | Both capture values from the URL; FastAPI derives the contract from type annotations. |
+| Query parameter | Usually read from `request.args`, unless an extension or manual parsing is used. | Declared as a function parameter, such as `limit: int = 20`. | FastAPI parses and validates declared parameters before the handler runs. |
+| Request body | Usually read from `request.get_json()` and validated manually or with an extension such as Marshmallow or WTForms. | Declared with a Pydantic model, such as `task: TaskCreate`. | FastAPI turns the JSON body into a typed model and rejects invalid data automatically. |
+| Response serialization | Often manual, or provided by an extension such as Flask-RESTX or Marshmallow. | Return annotations and `response_model` describe and validate output. | FastAPI makes the response contract part of the route definition. |
+| Modular routes | `Blueprint` groups routes and is registered with `app.register_blueprint()`. | `APIRouter` groups path operations and is included with `app.include_router()`. | `APIRouter` is the closest FastAPI equivalent to a Blueprint. |
+| Shared request logic | `before_request`, decorators, extensions, or middleware. | `Depends()`, decorators, middleware, or lifespan handlers, depending on scope. | Choose dependency injection for declared per-route requirements; use middleware for every request or response. |
+| Error handling | `@app.errorhandler(...)` handles exceptions or status codes. | `@app.exception_handler(...)` handles exceptions; `HTTPException` represents expected HTTP errors. | Both support centralized exception-to-response conversion. |
+| Server interface | Traditionally WSGI, commonly run with Gunicorn or a WSGI server. | ASGI, commonly run with Uvicorn or another ASGI server. | FastAPI supports async I/O and ASGI features such as WebSockets more directly. |
+
+The similar mental model is: create an application, declare routes, run a Python handler, and
+return an HTTP response. The fundamental differences are FastAPI's API-first design, ASGI and
+async support, type annotations as executable API metadata, Pydantic validation, response models,
+and automatic OpenAPI documentation. Flask is intentionally smaller and more unopinionated. It
+does not automatically provide FastAPI's request/response schema, validation, or documentation
+pipeline. FastAPI is not a full Django replacement: it does not include Django's ORM, admin site,
+template system, migrations, or batteries-included project conventions.
+
+2. FastAPI dependency injection compared with Django middleware
+
+These mechanisms can both run code around a request, but they are not interchangeable:
+
+| Question | FastAPI dependency injection | Django middleware |
+| --- | --- | --- |
+| Main purpose | Provide a value or reusable requirement to a path operation or another dependency. | Wrap the request/response lifecycle for broad, application-wide behavior. |
+| How it is declared | A handler parameter uses `Depends(...)`. | A middleware class or callable is added to Django's middleware setting. |
+| Scope | Only routes that declare the dependency, plus dependent sub-dependencies. | Normally every request passing through that middleware stack. |
+| Typical uses | Database session, current user, authorization check, pagination settings, service object. | Request logging, security headers, sessions, locale, redirects, timing, global request/response changes. |
+| Data flow | The resolved value is injected into a named function parameter. | Middleware receives a request and calls the next layer, then can inspect or modify the response. |
+| Testing | Override a dependency for a test with `app.dependency_overrides`. | Use Django's test client and configure or replace middleware as needed. |
+
+Example dependency:
+
+	from typing import Annotated
+	from fastapi import Depends, FastAPI, HTTPException
+
+	app = FastAPI()
+
+	def get_current_user() -> dict:
+		# A real implementation would inspect an authorization token.
+		return {"id": 1, "is_admin": True}
+
+	CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+	@app.get("/admin/tasks")
+	async def list_admin_tasks(user: CurrentUser):
+		if not user["is_admin"]:
+			raise HTTPException(status_code=403, detail="Admin access required")
+		return {"items": []}
+
+The route explicitly asks for `user`, and FastAPI resolves `get_current_user` before invoking the
+route. A dependency can itself depend on other dependencies, so the dependency graph can be
+composed and overridden in tests. In Django terms, this is closer to a reusable, parameterized
+view decorator or a view helper than to middleware.
+
+Use middleware when the behavior should apply broadly and does not belong to one route's input
+contract. Use a dependency when a route should opt in to a reusable value, check, or service.
+
+3. Flask Blueprints and the FastAPI equivalent
+
+The closest equivalent is `APIRouter`. A router groups related path operations, then the main
+application includes it. Prefixes and tags provide organization similar to a Blueprint's URL
+prefix and registration options.
+
+Flask:
+
+	from flask import Blueprint
+
+	tasks = Blueprint("tasks", __name__, url_prefix="/tasks")
+
+	@tasks.get("")
+	def list_tasks():
+		return {"items": []}
+
+	app.register_blueprint(tasks)
+
+FastAPI:
+
+	from fastapi import APIRouter, FastAPI
+
+	router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+	@router.get("")
+	async def list_tasks():
+		return {"items": []}
+
+	app = FastAPI()
+	app.include_router(router)
+
+The conceptual mapping is:
+
+- Flask `Blueprint` -> FastAPI `APIRouter`.
+- `url_prefix` -> `APIRouter(prefix=...)`.
+- Blueprint route registration -> `app.include_router(router)`.
+- Blueprint-level shared behavior -> router-level `dependencies=[Depends(...)]`, route dependencies,
+  or middleware when the behavior is truly global.
+- Flask endpoint names -> FastAPI operation IDs, which can be customized when generated client
+  names need to be stable.
+
+Unlike a Blueprint, an `APIRouter` is tightly integrated with FastAPI's OpenAPI generation,
+dependency graph, request models, and response models. The router is a grouping and composition
+tool; it is not a separate application.
+
+4. FastAPI request validation compared with typical Django form validation
+
+| Concern | FastAPI request validation | Typical Django form validation |
+| --- | --- | --- |
+| Primary target | API requests, commonly JSON bodies plus path and query parameters. | HTML form submissions, commonly URL-encoded or multipart form data. |
+| Declaration | Pydantic `BaseModel`, `Field`, type annotations, `Query`, and `Path`. | A `Form` or `ModelForm` class with declared fields and `clean()` methods. |
+| Timing | FastAPI validates before the path operation function runs. | Django validates when application code calls `form.is_valid()`. |
+| Failure result | FastAPI returns a structured JSON validation error, normally status `422`. | The form contains errors and is commonly rendered again with status `200`, unless the view chooses another response. |
+| Contract and documentation | The same model generates an OpenAPI schema and appears in `/docs`. | Form fields do not automatically define an API OpenAPI contract. |
+| Output | The handler receives a typed Pydantic model and can declare a response model. | The view reads `cleaned_data`; output rendering is usually handled by a template or manually. |
+| Validation style | Type coercion, required fields, constraints, nested models, and serialization are model-driven. | Field validators, `clean_<field>()`, and `clean()` implement field and cross-field rules. |
+
+Example FastAPI validation:
+
+	from fastapi import FastAPI
+	from pydantic import BaseModel, Field
+
+	app = FastAPI()
+
+	class TaskCreate(BaseModel):
+		title: str = Field(min_length=3, max_length=100)
+		priority: int = Field(default=1, ge=0, le=5)
+
+	@app.post("/tasks")
+	async def create_task(task: TaskCreate):
+		# If this function runs, the body has passed model validation.
+		return {"title": task.title, "priority": task.priority}
+
+For `{"title": "Hi", "priority": 9}`, FastAPI rejects the request before entering
+`create_task` and identifies both invalid fields in its structured error response. This resembles
+Django form validation in its declarative fields and reusable validators, but the request lifecycle
+is different: FastAPI treats validation as part of endpoint parameter resolution, while Django form
+validation is an explicit step in view code. FastAPI also validates path and query parameters using
+the same type-driven approach, not only submitted form fields.
+
+Personal translation table
+
+| Familiar concept | FastAPI equivalent | Remember this difference |
+| --- | --- | --- |
+| Flask application | `FastAPI()` | The app is ASGI-based and API schemas are first-class. |
+| Flask route decorator | FastAPI path operation decorator, such as `@app.get(...)` | The function signature contributes to parsing, validation, and docs. |
+| Flask `request.args` | Typed query parameters | Declare the parameter instead of manually extracting it. |
+| Flask `request.get_json()` | A Pydantic body model | The handler receives validated model data. |
+| Flask `Blueprint` | `APIRouter` | Include routers in the app with `include_router`. |
+| Flask `before_request` | `Depends()` for route-specific checks; middleware for global behavior | Dependencies provide values; middleware wraps the whole request pipeline. |
+| Django `Form` or `ModelForm` | Pydantic `BaseModel` | FastAPI validation is API-oriented and normally returns JSON errors. |
+| Django form `cleaned_data` | The Pydantic model parameter | Validation happens before the handler executes. |
+| Django middleware | FastAPI middleware | Both wrap requests, but middleware is broader than dependency injection. |
+| Django URLconf include | `app.include_router(...)` | Routers organize routes and contribute to OpenAPI docs. |
+| Django REST Framework serializer | Pydantic request/response model | Use separate input and output models when their contracts differ. |
+| Django view decorator | A dependency or route decorator | Choose based on whether you need an injected value/check or simple wrapping behavior. |
+
+The shortest useful rule is: use `APIRouter` to organize routes, Pydantic models to define data
+contracts, `Depends()` to compose route-level requirements, and middleware to wrap broad application
+behavior.
+
