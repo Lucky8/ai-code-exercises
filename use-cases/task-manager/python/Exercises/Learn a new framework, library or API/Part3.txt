@@ -1,0 +1,247 @@
+Part 3: Validation, Error Handling, and Modular FastAPI Applications
+
+1. Add request body validation with Pydantic
+
+FastAPI reads the type annotation on a path operation parameter and uses the Pydantic model to
+parse and validate the JSON request body. Invalid input is rejected before the endpoint function
+runs, normally with HTTP status `422` and a structured error response.
+
+Example:
+
+	from fastapi import FastAPI
+	from pydantic import BaseModel, Field
+
+	app = FastAPI()
+
+	class TaskCreate(BaseModel):
+		# The string must contain at least three characters.
+		title: str = Field(min_length=3, max_length=100)
+		# The default makes this field optional in the request body.
+		description: str = Field(default="", max_length=500)
+		# The value must be zero or greater.
+		priority: int = Field(default=1, ge=0, le=5)
+
+	@app.post("/tasks", status_code=201)
+	async def create_task(task: TaskCreate):
+		# If this function runs, task has already passed Pydantic validation.
+		return {"message": "Task created", "task": task.model_dump()}
+
+Valid JSON for this endpoint:
+
+	{
+		"title": "Learn FastAPI",
+		"description": "Practice request validation",
+		"priority": 2
+	}
+
+Invalid JSON, such as `{"title": "Hi", "priority": 9}`, produces a validation response because
+the title is too short and the priority is outside the allowed range. FastAPI also validates types;
+for example, a non-integer value for `priority` is rejected.
+
+Use separate models for different directions of data:
+
+	from datetime import datetime
+	from pydantic import BaseModel, Field
+
+	class TaskCreate(BaseModel):
+		title: str = Field(min_length=3, max_length=100)
+
+	class TaskResponse(BaseModel):
+		id: int
+		title: str
+		created_at: datetime
+
+	@app.post("/tasks", response_model=TaskResponse, status_code=201)
+	async def create_task(task: TaskCreate) -> TaskResponse:
+		return TaskResponse(
+			id=1,
+			title=task.title,
+			created_at=datetime.now(),
+		)
+
+The request model controls what clients may submit. The response model controls and validates what
+the API returns, which helps prevent internal fields such as database or security details from being
+sent accidentally.
+
+Validation can also be applied to path and query parameters:
+
+	from typing import Annotated
+	from fastapi import Query
+
+	@app.get("/tasks")
+	async def list_tasks(
+		limit: Annotated[int, Query(ge=1, le=100)] = 20,
+	):
+		return {"limit": limit, "items": []}
+
+2. Implement proper error handling
+
+Use the error mechanism that matches the problem:
+
+- Pydantic and FastAPI handle malformed request data automatically.
+- Raise `HTTPException` for expected client errors such as a missing resource or invalid operation.
+- Register custom exception handlers for domain exceptions so route functions stay readable.
+- Let unexpected exceptions reach logging and monitoring rather than hiding programming defects.
+- Avoid returning `200 OK` with an error message in the response body; use an appropriate HTTP status.
+
+Expected errors with `HTTPException`:
+
+	from fastapi import FastAPI, HTTPException, status
+
+	app = FastAPI()
+
+	TASKS = {1: {"id": 1, "title": "Learn FastAPI"}}
+
+	@app.get("/tasks/{task_id}")
+	async def get_task(task_id: int):
+		task = TASKS.get(task_id)
+		if task is None:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail=f"Task {task_id} was not found",
+			)
+		return task
+
+FastAPI converts the exception into a response such as:
+
+	{
+		"detail": "Task 99 was not found"
+	}
+
+Custom domain exceptions:
+
+	from fastapi import FastAPI, Request
+	from fastapi.responses import JSONResponse
+
+	class TaskNotFoundError(Exception):
+		def __init__(self, task_id: int):
+			self.task_id = task_id
+
+	app = FastAPI()
+
+	@app.exception_handler(TaskNotFoundError)
+	async def task_not_found_handler(
+		request: Request,
+		exception: TaskNotFoundError,
+	):
+		return JSONResponse(
+			status_code=404,
+			content={
+				"error": "task_not_found",
+				"message": f"Task {exception.task_id} was not found",
+			},
+		)
+
+	@app.get("/tasks/{task_id}")
+	async def get_task(task_id: int):
+		# A service layer can raise this exception without knowing about HTTP.
+		raise TaskNotFoundError(task_id)
+
+The `request` argument is available when request metadata is needed for logging, tracing, or a
+correlation ID. If the handler does not need it, it can still be included for a consistent handler
+signature, or omitted according to the framework version and project style.
+
+Handling validation errors consistently:
+
+	from fastapi.exceptions import RequestValidationError
+
+	@app.exception_handler(RequestValidationError)
+	async def validation_exception_handler(
+		request: Request,
+		exception: RequestValidationError,
+	):
+		return JSONResponse(
+			status_code=422,
+			content={
+				"error": "validation_error",
+				"details": exception.errors(),
+			},
+		)
+
+Register a handler like this only when the API needs a custom error contract. Otherwise, FastAPI's
+default validation response is useful and already includes the invalid field locations and reasons.
+
+3. Organize a FastAPI project into modules
+
+For a growing API, keep the application factory, routes, schemas, services, and persistence code in
+separate modules:
+
+	project/
+	|-- app/
+	|   |-- __init__.py
+	|   |-- main.py
+	|   |-- core/
+	|   |   |-- __init__.py
+	|   |   `-- errors.py
+	|   |-- api/
+	|   |   |-- __init__.py
+	|   |   `-- routes/
+	|   |       |-- __init__.py
+	|   |       `-- tasks.py
+	|   |-- schemas/
+	|   |   |-- __init__.py
+	|   |   `-- tasks.py
+	|   `-- services/
+	|       |-- __init__.py
+	|       `-- tasks.py
+	|-- tests/
+	|   `-- test_tasks.py
+	`-- requirements.txt
+
+Typical responsibilities:
+
+- `main.py`: creates the FastAPI instance and includes routers.
+- `api/routes/`: defines HTTP methods, paths, dependencies, request models, and response models.
+- `schemas/`: defines Pydantic models used as API input and output contracts.
+- `services/`: contains business rules and should not depend on HTTP response objects.
+- `core/errors.py`: defines domain exceptions and their application-wide handlers.
+- A separate `db/` or `repositories/` package can own database sessions and data access.
+- `tests/`: verifies endpoints and services independently where that separation is useful.
+
+Example module contents:
+
+app/schemas/tasks.py:
+
+	from pydantic import BaseModel, Field
+
+	class TaskCreate(BaseModel):
+		title: str = Field(min_length=3, max_length=100)
+
+	class TaskResponse(TaskCreate):
+		id: int
+
+app/services/tasks.py:
+
+	from app.schemas.tasks import TaskCreate, TaskResponse
+
+	async def create_task(task: TaskCreate) -> TaskResponse:
+		# A real service would call a repository or database here.
+		return TaskResponse(id=1, title=task.title)
+
+app/api/routes/tasks.py:
+
+	from fastapi import APIRouter, status
+	from app.schemas.tasks import TaskCreate, TaskResponse
+	from app.services.tasks import create_task
+
+	router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+	@router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
+	async def post_task(task: TaskCreate) -> TaskResponse:
+		return await create_task(task)
+
+app/main.py:
+
+	from fastapi import FastAPI
+	from app.api.routes import tasks
+
+	app = FastAPI(title="Task API")
+	app.include_router(tasks.router)
+
+Start this application from the project root with:
+
+	uvicorn app.main:app --reload
+
+The import path works because `app.main` is the module and `app` is the FastAPI object inside it.
+Keeping this entry point small makes it easy to add more routers, middleware, exception handlers,
+and lifespan configuration without placing the entire application in one file.
