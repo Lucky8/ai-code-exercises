@@ -1,0 +1,287 @@
+Part 2: Tracing Execution Flow
+
+## Request Flow: `/admin/users/`
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Timing as TimingMiddleware
+    participant FastAPI
+    participant OAuth as oauth2_scheme
+    participant Auth as get_current_user
+    participant DB as AsyncSession
+    participant Repo as UserRepository
+    participant RBAC as requires_role("admin")
+    participant Endpoint as list_users
+
+    Client->>Timing: HTTP GET /admin/users/ + Bearer token
+    Timing->>Timing: Record start time
+    Timing->>FastAPI: call_next(request)
+
+    FastAPI->>FastAPI: Match route and inspect dependencies
+    FastAPI->>OAuth: Extract bearer token
+    OAuth-->>FastAPI: token
+
+    FastAPI->>DB: Resolve get_db()
+    DB-->>FastAPI: AsyncSession
+
+    FastAPI->>Auth: get_current_user(token, db)
+    Auth->>Auth: Decode and validate JWT
+    Auth->>Repo: Create UserRepository(User)
+    Auth->>Repo: get_by_username(db, username)
+    Repo->>DB: execute(select(User)...)
+    DB-->>Repo: Query result
+    Repo-->>Auth: User or None
+
+    alt Invalid token or unknown user
+        Auth-->>FastAPI: HTTP 401 exception
+        FastAPI-->>Client: 401 Unauthorized
+    else Valid user
+        Auth-->>FastAPI: current_user
+        FastAPI->>RBAC: Invoke decorated endpoint
+        RBAC->>RBAC: Check current_user.is_superuser
+
+        alt User is not an admin
+            RBAC-->>FastAPI: HTTP 403 exception
+            FastAPI-->>Client: 403 Forbidden
+        else User is an admin
+            RBAC->>Endpoint: list_users(skip, limit, db, current_user)
+            Endpoint->>Repo: Create UserRepository(User)
+            Endpoint->>Repo: list(db, skip, limit)
+            Repo->>DB: execute(select(User).offset().limit())
+            DB-->>Repo: User records
+            Repo-->>Endpoint: List[User]
+            Endpoint-->>FastAPI: List[User]
+            FastAPI->>FastAPI: Serialize using UserSchema
+            FastAPI-->>Timing: Response
+            Timing->>Timing: Calculate elapsed time
+            Timing-->>Client: 200 response + X-Process-Time
+        end
+    end
+
+    Note over DB: Session cleanup runs after request completion
+```
+
+## Step-by-Step
+
+### 1. The request enters middleware
+
+The request first reaches:
+
+```python
+class TimingMiddleware:
+    async def __call__(self, request, call_next):
+```
+
+The middleware records the start time and calls:
+
+```python
+response = await call_next(request)
+```
+
+`call_next` passes control to FastAPI.
+
+### 2. FastAPI matches the route
+
+FastAPI matches:
+
+```python
+GET /admin/users/
+```
+
+to:
+
+```python
+list_users(...)
+```
+
+It sees these dependencies:
+
+```python
+db: AsyncSession = Depends(get_db)
+current_user: User = Depends(get_current_user)
+```
+
+### 3. FastAPI creates a database session
+
+FastAPI calls:
+
+```python
+get_db()
+```
+
+The function creates an `AsyncSession` and yields it to the request. The session remains available while the endpoint and its dependencies run.
+
+### 4. FastAPI extracts the bearer token
+
+`get_current_user` depends on:
+
+```python
+token: str = Depends(oauth2_scheme)
+```
+
+`OAuth2PasswordBearer` reads the `Authorization` header:
+
+```text
+Authorization: Bearer <token>
+```
+
+It extracts and returns the token string.
+
+If the header is missing or malformed, the request is rejected before the endpoint runs.
+
+### 5. FastAPI authenticates the user
+
+FastAPI calls:
+
+```python
+get_current_user(token, db)
+```
+
+That function:
+
+1. Decodes the JWT.
+2. Reads the `sub` claim as the username.
+3. Creates `UserRepository(User)`.
+4. Calls `get_by_username`.
+5. Queries the database.
+6. Returns the matching `User`.
+
+Invalid JWTs, missing usernames, or unknown users result in:
+
+```text
+401 Unauthorized
+```
+
+### 6. The authorization decorator runs
+
+The endpoint is decorated with:
+
+```python
+@requires_role("admin")
+```
+
+The decorator checks:
+
+```python
+current_user.is_superuser
+```
+
+If the user is authenticated but not a superuser, it raises:
+
+```text
+403 Forbidden
+```
+
+This is authorization, not authentication:
+
+- `401`: The request does not establish a valid identity.
+- `403`: The identity is valid but lacks permission.
+
+### 7. The endpoint queries users
+
+For an authorized user, the wrapper calls:
+
+```python
+list_users(skip, limit, db, current_user)
+```
+
+The endpoint creates another `UserRepository` and calls:
+
+```python
+user_repo.list(db, skip=skip, limit=limit)
+```
+
+The repository executes a paginated SQLAlchemy query:
+
+```python
+select(User).offset(skip).limit(limit)
+```
+
+The default values are:
+
+```python
+skip = 0
+limit = 10
+```
+
+### 8. FastAPI serializes the response
+
+The endpoint returns a list of `User` model instances. Because the route declares:
+
+```python
+response_model=List[UserSchema]
+```
+
+FastAPI serializes each user using `UserSchema`, exposing only:
+
+```python
+id
+username
+email
+is_active
+```
+
+Fields such as `hashed_password` are excluded.
+
+### 9. Middleware adds timing information
+
+The response returns to `TimingMiddleware`, which calculates the duration and adds:
+
+```http
+X-Process-Time: <milliseconds>
+```
+
+The completed response is then sent to the client.
+
+### 10. The database session is closed
+
+After request processing finishes, the `finally` block in `get_db` runs:
+
+```python
+await session.close()
+```
+
+This cleanup occurs whether the request succeeds or raises an authentication, authorization, or other exception.
+
+## Overall Control Flow
+
+```mermaid
+flowchart TD
+    A[Client requests GET /admin/users/] --> B[TimingMiddleware starts timer]
+    B --> C[FastAPI matches route]
+    C --> D[Extract bearer token]
+    D --> E{JWT valid?}
+    E -- No --> F[401 Unauthorized]
+    E -- Yes --> G[Load user from database]
+    G --> H{User exists?}
+    H -- No --> F
+    H -- Yes --> I{User is superuser?}
+    I -- No --> J[403 Forbidden]
+    I -- Yes --> K[Query users with skip and limit]
+    K --> L[Serialize as List UserSchema]
+    L --> M[Add X-Process-Time header]
+    M --> N[Return 200 response]
+    F --> O[Close database session]
+    J --> O
+    N --> O
+    B --> O
+flowchart TD
+    A[Client requests GET /admin/users/] --> B[TimingMiddleware starts timer]
+    B --> C[FastAPI matches route]
+    C --> D[Extract bearer token]
+    D --> E{JWT valid?}
+    E -- No --> F[401 Unauthorized]
+    E -- Yes --> G[Load user from database]
+    G --> H{User exists?}
+    H -- No --> F
+    H -- Yes --> I{User is superuser?}
+    I -- No --> J[403 Forbidden]
+    I -- Yes --> K[Query users with skip and limit]
+    K --> L[Serialize as List UserSchema]
+    L --> M[Add X-Process-Time header]
+    M --> N[Return 200 response]
+    F --> O[Close database session]
+    J --> O
+    N --> O
+    B --> O

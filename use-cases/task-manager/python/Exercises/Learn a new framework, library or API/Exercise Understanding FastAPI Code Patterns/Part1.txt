@@ -1,0 +1,243 @@
+Part 1: Analyzing Complex Code
+
+## Repository Pattern
+
+`Repository[T]` is a reusable data-access component. It receives a model class and contains common database operations:
+
+```python
+class Repository(Generic[T]):
+    def __init__(self, model: Type[T]):
+        self.model = model
+```
+
+For example:
+
+```python
+user_repo = Repository(User)
+
+user = await user_repo.get_by_id(db, 1)
+users = await user_repo.list(db)
+```
+
+The repository centralizes database queries instead of placing SQLAlchemy logic directly inside API endpoints or services.
+
+`UserRepository` extends it with user-specific queries:
+
+```python
+class UserRepository(Repository[User]):
+    async def get_by_username(...):
+        ...
+```
+
+This gives the application:
+
+- Reusable CRUD behavior
+- Smaller endpoint functions
+- A clear place for database queries
+- Easier testing and mocking
+- A separation between web/API logic and persistence logic
+
+The pattern is not a complete database abstraction here because repositories still receive `AsyncSession` and use SQLAlchemy directly. It is better described as a structured data-access layer rather than a fully database-independent abstraction.
+
+## Purpose of `Generic[T]`
+
+`T` is a type variable representing the model handled by a repository:
+
+```python
+T = TypeVar("T", bound=Base)
+```
+
+`bound=Base` means `T` must be a model derived from `Base`.
+
+When you write:
+
+```python
+Repository[User]
+```
+
+the repository is understood as a repository for `User` objects. This improves:
+
+- Type checking
+- Editor autocomplete
+- Documentation through types
+- Reuse across `User`, `Order`, `Product`, and other models
+
+Without generics, the repository would either need to be duplicated for every model or use vague types such as `Any`.
+
+Conceptually:
+
+```python
+Repository[User]     # returns User objects
+Repository[Order]    # returns Order objects
+```
+
+The implementation is shared, but the expected model type remains explicit.
+
+## Dependency Injection
+
+FastAPI examines parameters containing `Depends(...)`, resolves those dependencies, and passes the results into endpoint functions.
+
+The dependency chain here is roughly:
+
+```text
+HTTP request
+   |
+   v
+get_db()
+   |
+   v
+AsyncSession
+   |
+   v
+get_current_user()
+   |
+   v
+Authenticated User
+   |
+   v
+Endpoint
+```
+
+### 1. Database dependency
+
+```python
+async def get_db() -> AsyncSession:
+    async with AsyncSession() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+```
+
+An endpoint declares:
+
+```python
+db: AsyncSession = Depends(get_db)
+```
+
+FastAPI then:
+
+1. Calls `get_db`
+2. Receives the yielded database session
+3. Passes it to the endpoint
+4. Runs the cleanup code after the request
+
+This ensures sessions are consistently created and closed.
+
+### 2. OAuth token dependency
+
+```python
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+```
+
+Then:
+
+```python
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+):
+```
+
+FastAPI resolves both nested dependencies:
+
+- `oauth2_scheme` extracts the bearer token
+- `get_db` supplies a database session
+- `get_current_user` validates the token and loads the user
+
+An endpoint can simply write:
+
+```python
+current_user: User = Depends(get_current_user)
+```
+
+It does not need to manually parse tokens or query the database.
+
+### 3. Endpoint dependencies
+
+For example:
+
+```python
+async def read_users_me(
+    current_user: User = Depends(get_current_user)
+):
+```
+
+The endpoint receives an already-authenticated user. Authentication is therefore reusable across many endpoints.
+
+Dependency injection also makes testing easier: tests can replace `get_db` or `get_current_user` with fake implementations.
+
+### 4. Service dependency
+
+The service is manually constructed here:
+
+```python
+user_repo = UserRepository(User)
+user_service = UserService(user_repo)
+```
+
+It could also be exposed as a FastAPI dependency. The service layer contains business logic, such as authenticating a user and creating tokens, while the repository handles data access.
+
+## Role-Based Access Control
+
+The RBAC mechanism has three main parts.
+
+### 1. Identify the current user
+
+`get_current_user`:
+
+1. Extracts the bearer token
+2. Decodes it using JWT
+3. Gets the username from the `sub` claim
+4. Looks up the user through `UserRepository`
+5. Rejects invalid or missing users with HTTP 401
+
+```python
+current_user = await get_current_user(...)
+```
+
+### 2. Declare a required role
+
+The endpoint uses:
+
+```python
+@requires_role("admin")
+```
+
+The decorator creates a wrapper around the endpoint.
+
+### 3. Check the role
+
+The wrapper checks:
+
+```python
+if role == "admin" and not current_user.is_superuser:
+    raise HTTPException(status_code=403)
+```
+
+Therefore:
+
+- Missing or invalid authentication produces `401 Unauthorized`
+- A valid user without the required privilege produces `403 Forbidden`
+- An authenticated superuser may continue to the endpoint
+
+The distinction is important: authentication answers “Who are you?”, while authorization answers “Are you allowed to do this?”
+
+## Why This Structure Is Useful
+
+The code separates responsibilities:
+
+```text
+Endpoint       HTTP concerns and request/response handling
+Dependency     Session and authentication setup
+Service        Business rules
+Repository     Database queries
+Model          Database data structure
+Schema         API response shape
+Middleware     Cross-cutting request behavior
+Decorator      Authorization rules
+```
+
+That separation helps prevent endpoints from becoming large functions that simultaneously parse requests, query the database, authenticate users, enforce roles, and implement business rules.
+
+One practical improvement would be to make repository and service creation dependencies too. That would avoid constructing them inside endpoints and make replacement with test doubles more straightforward.
