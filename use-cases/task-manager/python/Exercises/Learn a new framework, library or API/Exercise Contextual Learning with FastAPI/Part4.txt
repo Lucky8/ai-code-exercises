@@ -1,0 +1,68 @@
+Part 4: Mental Model Translation Exercise
+
+Conceptual mapping
+| Familiar web-framework concept       | FastAPI equivalent                                 | Mental model                                                            |
+| ------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Routes / URLs**                    | Path operations: `@app.get()`, `@app.post()`, etc. | A Python function is directly connected to an HTTP endpoint.            |
+| **Controller / Handler**             | Path operation function                            | Usually no separate controller class is required.                       |
+| **Request object**                   | Function parameters + `Request`                    | FastAPI can extract data directly into typed parameters.                |
+| **URL parameters**                   | Path parameters: `/{id}`                           | Declared directly in the function signature.                            |
+| **Query parameters**                 | Typed function parameters                          | FastAPI automatically parses and validates them.                        |
+| **Request body / DTO**               | **Pydantic models**                                | Define the expected request structure as a Python model.                |
+| **Response DTO / Serializer**        | `response_model`                                   | Controls and validates the response structure.                          |
+| **Middleware**                       | `@app.middleware()` / ASGI middleware              | Runs before/after requests, similar to middleware elsewhere.            |
+| **Dependency injection**             | `Depends()`                                        | Functions can declare dependencies that FastAPI resolves automatically. |
+| **Authentication middleware/guards** | Dependencies/security utilities                    | Authentication is often expressed as a reusable dependency.             |
+| **ORM integration**                  | SQLAlchemy, SQLModel, etc.                         | Database layer is separate; FastAPI doesn't force an ORM.               |
+| **Validation library**               | Pydantic                                           | Type annotations become part of the validation system.                  |
+| **API documentation**                | OpenAPI + Swagger UI/ReDoc                         | Generated automatically from routes, types, and schemas.                |
+| **Async handlers**                   | `async def`                                        | Native support for asynchronous request handling.                       |
+| **Application configuration**        | Environment/config libraries + application setup   | FastAPI doesn't impose a single configuration architecture.             |
+
+
+With FastAPI, a lot of the boundary work can be expressed directly through Python's type system and function signatures:
+HTTP Request
+     ↓
+FastAPI routing
+     ↓
+Typed parameters ──→ validation
+     ↓
+Pydantic model ────→ request-body validation
+     ↓
+Depends() ─────────→ dependencies/auth/database
+     ↓
+Path operation function
+     ↓
+response_model ────→ response validation/schema
+     ↓
+HTTP Response
+
+You can therefore think of FastAPI as:
+                    ┌─────────────────────┐
+                    │      FastAPI App     │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ↓                ↓                ↓
+           Routing         Dependencies      Middleware
+              │                │                │
+              └────────────────┼────────────────┘
+                               ↓
+                       Path Operation
+                          Function
+                               │
+                    ┌──────────┴──────────┐
+                    ↓                     ↓
+             Pydantic models        Type annotations
+                    │                     │
+                    └──────────┬──────────┘
+                               ↓
+                       Validation /
+                       Serialization
+                               │
+                               ↓
+                        OpenAPI Schema
+                               │
+                       ┌───────┴───────┐
+                       ↓               ↓
+                  Swagger UI         ReDoc
