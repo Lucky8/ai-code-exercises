@@ -1,0 +1,202 @@
+Part 2: Building, Structuring, Running, and Testing a FastAPI Application
+
+1. Basic "Hello World" example
+
+Create a file named main.py:
+
+	from fastapi import FastAPI
+
+	# Create the FastAPI application object. This object owns the routes and API configuration.
+	app = FastAPI(title="Hello World API")
+
+	# The decorator connects HTTP GET requests for / to the function below it.
+	@app.get("/")
+	async def read_root():
+		# FastAPI converts this dictionary to a JSON response automatically.
+		return {"message": "Hello World"}
+
+
+Explanation:
+
+- `FastAPI()` creates the application instance.
+- `@app.get("/")` declares a GET path operation at the root URL.
+- `async def read_root()` is the handler FastAPI calls when a client requests `/`.
+- Returning a dictionary produces a JSON response: `{"message": "Hello World"}`.
+- FastAPI generates interactive documentation at `/docs` and alternative documentation at `/redoc`.
+
+2. A project structure that scales
+
+A small but maintainable task API could use this layout:
+
+	fastapi-task-api/
+	|-- app/
+	|   |-- __init__.py
+	|   |-- main.py
+	|   |-- api/
+	|   |   |-- __init__.py
+	|   |   `-- routes/
+	|   |       |-- __init__.py
+	|   |       `-- tasks.py
+	|   |-- core/
+	|   |   |-- __init__.py
+	|   |   `-- config.py
+	|   |-- models/
+	|   |   |-- __init__.py
+	|   |   `-- task.py
+	|   |-- schemas/
+	|   |   |-- __init__.py
+	|   |   `-- task.py
+	|   |-- services/
+	|   |   |-- __init__.py
+	|   |   `-- task_service.py
+	|   `-- db/
+	|       |-- __init__.py
+	|       `-- session.py
+	|-- tests/
+	|   |-- __init__.py
+	|   `-- test_tasks.py
+	|-- requirements.txt
+	`-- README.md
+
+Recommended responsibilities:
+
+- `app/main.py`: creates the FastAPI instance, includes routers, and configures application-wide
+	behavior such as lifespan handlers or middleware.
+- `app/api/routes/`: defines HTTP endpoints and translates HTTP input into service calls. Keep
+	business rules out of route functions when they become non-trivial.
+- `app/schemas/`: contains Pydantic request and response models. Use separate input and output
+	models when clients should not be allowed to set or see the same fields.
+- `app/models/`: contains database ORM models if the application uses a database. Do not confuse
+	these with API schemas.
+- `app/services/`: contains reusable business logic so it can be called by routes, background jobs,
+	or tests without depending on HTTP details.
+- `app/db/`: contains database engine, session, and transaction setup.
+- `app/core/`: contains configuration, security helpers, logging, and other cross-cutting concerns.
+- `tests/`: mirrors important API behavior and tests the service layer independently when useful.
+
+Best practices:
+
+- Use type annotations and Pydantic models to make request and response contracts explicit.
+- Declare `response_model` on routes so returned data is validated and sensitive fields are filtered.
+- Group related endpoints with `APIRouter` and include them from `main.py`.
+- Keep route handlers thin; put validation that represents business rules in a service layer.
+- Use dependency injection with `Depends()` for database sessions, authentication, and shared services.
+- Read configuration from environment variables or a settings object instead of hard-coding secrets.
+- Use `async def` for handlers that await asynchronous I/O. Do not call blocking libraries directly from
+	an async handler; use a compatible async library or isolate blocking work appropriately.
+- Return meaningful HTTP status codes and raise `HTTPException` for expected API errors.
+- Add tests for success, validation failures, not-found cases, and authorization failures.
+- Keep development dependencies such as `pytest` separate from production dependencies when packaging.
+
+Example router and application entry point:
+
+app/schemas/task.py:
+
+	from pydantic import BaseModel
+
+	class TaskCreate(BaseModel):
+		title: str
+
+	class TaskResponse(TaskCreate):
+		id: int
+
+app/api/routes/tasks.py:
+
+	from fastapi import APIRouter, status
+	from app.schemas.task import TaskCreate, TaskResponse
+
+	router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+	@router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
+	async def create_task(task: TaskCreate) -> TaskResponse:
+		# A real application would call a service or repository here.
+		return TaskResponse(id=1, title=task.title)
+
+app/main.py:
+
+	from fastapi import FastAPI
+	from app.api.routes import tasks
+
+	app = FastAPI(title="Task API")
+	app.include_router(tasks.router)
+
+The import path `app.main:app` means: import the `app` object from the `app/main.py` module.
+
+3. Run the application locally
+
+From the project root, create and activate a virtual environment on Windows PowerShell:
+
+	python -m venv .venv
+	.venv\Scripts\Activate.ps1
+
+If PowerShell blocks script activation, use the Command Prompt activation command instead:
+
+	.venv\Scripts\activate.bat
+
+Install the application and test dependencies:
+
+	pip install "fastapi[standard]" pytest
+
+For a repeatable project, record dependencies in `requirements.txt`:
+
+	fastapi[standard]
+	pytest
+
+Then install them with:
+
+	pip install -r requirements.txt
+
+Start the Hello World application:
+
+	uvicorn main:app --reload
+
+For the structured project, start this instead from `fastapi-task-api/`:
+
+	uvicorn app.main:app --reload
+
+`--reload` watches source files and restarts the development server after changes. Do not use it
+as the production process. The API is then available at:
+
+- `http://127.0.0.1:8000/` for the root endpoint.
+- `http://127.0.0.1:8000/docs` for Swagger UI.
+- `http://127.0.0.1:8000/redoc` for ReDoc.
+
+4. Test the application locally
+
+Create `tests/test_main.py` for the basic example:
+
+	from fastapi.testclient import TestClient
+	from main import app
+
+	# TestClient sends requests to the FastAPI application without starting a real server.
+	client = TestClient(app)
+
+	def test_read_root():
+		response = client.get("/")
+
+		assert response.status_code == 200
+		assert response.json() == {"message": "Hello World"}
+
+Run all tests from the project root:
+
+	python -m pytest
+
+Run one test file with more detail:
+
+	python -m pytest tests/test_main.py -v
+
+For the structured task route, a test can verify both the status code and response schema:
+
+	from fastapi.testclient import TestClient
+	from app.main import app
+
+	client = TestClient(app)
+
+	def test_create_task():
+		response = client.post("/tasks", json={"title": "Learn FastAPI"})
+
+		assert response.status_code == 201
+		assert response.json() == {"id": 1, "title": "Learn FastAPI"}
+
+The most useful local workflow is: start the server with Uvicorn, try requests in `/docs`, make
+changes, run `python -m pytest`, and check validation and error cases in addition to the happy path.
