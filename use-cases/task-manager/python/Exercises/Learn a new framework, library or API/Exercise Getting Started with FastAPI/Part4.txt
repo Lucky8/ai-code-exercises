@@ -4,9 +4,9 @@ The accompanying `todo_api.py` file implements a small in-memory to-do API. It f
 validation, error-handling, modularity, and automatic documentation patterns from Parts 1-3.
 
 FILES: 
-use-cases\task-manager\python\Exercises\Learn a new framework, library or API\todo_api.py
-use-cases\task-manager\python\Exercises\Learn a new framework, library or API\test_todo_api.py
-use-cases\task-manager\python\Exercises\Learn a new framework, library or API\requirements.txt
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Getting Started with FastAPI\todo_api.py
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Getting Started with FastAPI\test_todo_api.py
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Getting Started with FastAPI\requirements.txt
 
 1. Features
 
