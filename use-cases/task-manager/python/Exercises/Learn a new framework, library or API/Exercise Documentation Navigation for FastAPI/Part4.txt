@@ -1,0 +1,552 @@
+Part 4: Comprehensive Documentation Challenge
+
+
+FastAPI Blog API: Documentation to Cohesive Application
+========================================================
+
+Goal
+----
+
+Build a small REST API for users, blog posts, comments, and search while
+following the patterns used in the official FastAPI documentation. The example
+below is intentionally a single-file, in-memory application so the framework
+concepts stay visible. It is a learning application, not a production-ready
+identity or persistence system.
+
+1. Documentation map
+--------------------
+
+Authentication and user registration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Security - First Steps:
+  https://fastapi.tiangolo.com/tutorial/security/first-steps/
+  Introduces OAuth2 password flow, bearer tokens, `tokenUrl`, and
+  `OAuth2PasswordBearer`.
+- Get Current User:
+  https://fastapi.tiangolo.com/tutorial/security/get-current-user/
+  Shows how a security dependency can turn a token into a user object and make
+  that user available to many endpoints.
+- OAuth2 with Password, hashing, and JWT:
+  https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/
+  Adds secure password hashing with `pwdlib`, signed JWT creation with PyJWT,
+  token expiration, token decoding, and invalid-credential handling.
+- OAuth2 scopes, if role or permission levels are later needed:
+  https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/
+
+The implementation uses the docs' flow:
+
+1. Register a user and store a password hash, never the plaintext password.
+2. Submit username and password to `POST /token` as OAuth2 form data.
+3. Return a short-lived bearer JWT.
+4. Read and validate `Authorization: Bearer <token>` through a dependency.
+5. Inject the current user into protected path operations with `Depends`.
+
+Request and response models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Request Body: https://fastapi.tiangolo.com/tutorial/body/
+- Extra Models: https://fastapi.tiangolo.com/tutorial/extra-models/
+- Response Model: https://fastapi.tiangolo.com/tutorial/response-model/
+
+Separate input and output models are important. `UserCreate` accepts a
+password, while `UserPublic` does not expose a password or password hash.
+`response_model` documents, validates, serializes, and filters output.
+
+Posts and comments CRUD
+~~~~~~~~~~~~~~~~~~~~~~~
+
+- SQL databases:
+  https://fastapi.tiangolo.com/tutorial/sql-databases/
+  The official example uses SQLModel, a `yield` session dependency, models for
+  stored/create/public/update data, and `Session` operations for CRUD.
+- Body Updates:
+  https://fastapi.tiangolo.com/tutorial/body-updates/
+  Explains `PUT` replacement and `PATCH` partial updates using
+  `model_dump(exclude_unset=True)`.
+- Handling Errors:
+  https://fastapi.tiangolo.com/tutorial/handling-errors/
+  Uses `raise HTTPException(...)` for 401, 403, and 404 responses.
+
+This first version uses dictionaries instead of SQLModel so it can run without
+a database. The route shapes and model separation are ready to move to SQLModel
+later. The ownership checks demonstrate authorization: authentication tells us
+who the user is; authorization decides whether that user may edit the post.
+
+Search
+------
+
+- Query Parameters: https://fastapi.tiangolo.com/tutorial/query-params/
+- Query Parameter Models:
+  https://fastapi.tiangolo.com/tutorial/query-param-models/
+
+The `q`, `skip`, and `limit` values are query parameters. FastAPI converts and
+validates their declared types and includes them in OpenAPI automatically.
+
+Application structure
+---------------------
+
+- Bigger Applications - Multiple Files:
+  https://fastapi.tiangolo.com/tutorial/bigger-applications/
+
+The code is presented as one `main.py` for learning. Once it grows, split it
+into `main.py`, `security.py`, `models.py`, `dependencies.py`, and routers such
+as `users.py`, `posts.py`, and `comments.py`. Use `APIRouter` and
+`app.include_router()` as shown in the documentation.
+
+2. Practical cohesive example
+-----------------------------
+
+Install the documented security dependencies:
+
+	uv add "fastapi[standard]" pyjwt "pwdlib[argon2]"
+
+`fastapi[standard]` includes the form parsing support needed by
+`OAuth2PasswordRequestForm`. Save the following as `main.py`:
+
+	from datetime import datetime, timedelta, timezone
+	import os
+	from typing import Annotated, Any
+
+	import jwt
+	from fastapi import Depends, FastAPI, HTTPException, Query, status
+	from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+	from jwt.exceptions import InvalidTokenError
+	from pydantic import BaseModel, Field
+	from pwdlib import PasswordHash
+
+
+	app = FastAPI(title="Blog API")
+
+	# Set a real secret in the environment. This fallback is only for local study.
+	SECRET_KEY = os.getenv("BLOG_SECRET_KEY", "development-only-change-me")
+	ALGORITHM = "HS256"
+	ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+	password_hash = PasswordHash.recommended()
+	oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+	# In-memory stores keep the example focused. A restart clears all data.
+	users: dict[str, dict[str, Any]] = {}
+	posts: dict[int, dict[str, Any]] = {}
+	comments: dict[int, dict[str, Any]] = {}
+	next_post_id = 1
+	next_comment_id = 1
+
+
+	class UserCreate(BaseModel):
+		username: str = Field(min_length=3, max_length=50)
+		password: str = Field(min_length=8, max_length=128)
+
+
+	class UserPublic(BaseModel):
+		username: str
+
+
+	class Token(BaseModel):
+		access_token: str
+		token_type: str
+
+
+	class TokenData(BaseModel):
+		username: str | None = None
+
+
+	class PostCreate(BaseModel):
+		title: str = Field(min_length=1, max_length=200)
+		content: str = Field(min_length=1)
+
+
+	class PostUpdate(BaseModel):
+		title: str | None = Field(default=None, min_length=1, max_length=200)
+		content: str | None = Field(default=None, min_length=1)
+
+
+	class PostPublic(BaseModel):
+		id: int
+		title: str
+		content: str
+		author: str
+		created_at: datetime
+
+
+	class CommentCreate(BaseModel):
+		content: str = Field(min_length=1, max_length=2000)
+
+
+	class CommentPublic(BaseModel):
+		id: int
+		post_id: int
+		content: str
+		author: str
+		created_at: datetime
+
+
+	def create_access_token(data: dict[str, Any]) -> str:
+		"""Create the signed, expiring token used by the docs' JWT example."""
+		payload = data.copy()
+		payload["exp"] = datetime.now(timezone.utc) + timedelta(
+			minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+		)
+		return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+	def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
+		user = users.get(username)
+		if user is None:
+			return None
+		if not password_hash.verify(password, user["hashed_password"]):
+			return None
+		return user
+
+
+	async def get_current_user(
+		token: Annotated[str, Depends(oauth2_scheme)],
+	) -> dict[str, Any]:
+		credentials_exception = HTTPException(
+			status_code=status.HTTP_401_UNAUTHORIZED,
+			detail="Could not validate credentials",
+			headers={"WWW-Authenticate": "Bearer"},
+		)
+		try:
+			payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+			username = payload.get("sub")
+			if username is None:
+				raise credentials_exception
+			token_data = TokenData(username=username)
+		except (InvalidTokenError, ValueError):
+			raise credentials_exception
+
+		user = users.get(token_data.username or "")
+		if user is None:
+			raise credentials_exception
+		return user
+
+
+	CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
+
+
+	@app.post(
+		"/users",
+		response_model=UserPublic,
+		status_code=status.HTTP_201_CREATED,
+		tags=["users"],
+	)
+	async def register_user(user: UserCreate) -> dict[str, str]:
+		if user.username in users:
+			raise HTTPException(status_code=409, detail="Username already exists")
+		users[user.username] = {
+			"username": user.username,
+			"hashed_password": password_hash.hash(user.password),
+		}
+		return {"username": user.username}
+
+
+	@app.post("/token", response_model=Token, tags=["authentication"])
+	async def login_for_access_token(
+		form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+	) -> Token:
+		user = authenticate_user(form_data.username, form_data.password)
+		if user is None:
+			raise HTTPException(
+				status_code=status.HTTP_401_UNAUTHORIZED,
+				detail="Incorrect username or password",
+				headers={"WWW-Authenticate": "Bearer"},
+			)
+		token = create_access_token(data={"sub": user["username"]})
+		return Token(access_token=token, token_type="bearer")
+
+
+	@app.get("/users/me", response_model=UserPublic, tags=["users"])
+	async def read_current_user(current_user: CurrentUser):
+		return current_user
+
+
+	@app.get("/posts", response_model=list[PostPublic], tags=["posts"])
+	async def list_posts(
+		q: str | None = None,
+		skip: int = Query(default=0, ge=0),
+		limit: int = Query(default=20, ge=1, le=100),
+	):
+		matching_posts = list(posts.values())
+		if q:
+			search_text = q.casefold()
+			matching_posts = [
+				post
+				for post in matching_posts
+				if search_text in post["title"].casefold()
+				or search_text in post["content"].casefold()
+			]
+		return matching_posts[skip : skip + limit]
+
+
+	@app.post(
+		"/posts",
+		response_model=PostPublic,
+		status_code=status.HTTP_201_CREATED,
+		tags=["posts"],
+	)
+	async def create_post(
+		post: PostCreate,
+		current_user: CurrentUser,
+	):
+		global next_post_id
+		stored_post = {
+			"id": next_post_id,
+			"title": post.title,
+			"content": post.content,
+			"author": current_user["username"],
+			"created_at": datetime.now(timezone.utc),
+		}
+		posts[next_post_id] = stored_post
+		next_post_id += 1
+		return stored_post
+
+
+	@app.get("/posts/{post_id}", response_model=PostPublic, tags=["posts"])
+	async def read_post(post_id: int):
+		post = posts.get(post_id)
+		if post is None:
+			raise HTTPException(status_code=404, detail="Post not found")
+		return post
+
+
+	@app.put("/posts/{post_id}", response_model=PostPublic, tags=["posts"])
+	async def replace_post(
+		post_id: int,
+		post: PostCreate,
+		current_user: CurrentUser,
+	):
+		stored_post = posts.get(post_id)
+		if stored_post is None:
+			raise HTTPException(status_code=404, detail="Post not found")
+		if stored_post["author"] != current_user["username"]:
+			raise HTTPException(status_code=403, detail="Not allowed to edit this post")
+		stored_post.update(title=post.title, content=post.content)
+		return stored_post
+
+
+	@app.patch("/posts/{post_id}", response_model=PostPublic, tags=["posts"])
+	async def update_post(
+		post_id: int,
+		post: PostUpdate,
+		current_user: CurrentUser,
+	):
+		stored_post = posts.get(post_id)
+		if stored_post is None:
+			raise HTTPException(status_code=404, detail="Post not found")
+		if stored_post["author"] != current_user["username"]:
+			raise HTTPException(status_code=403, detail="Not allowed to edit this post")
+		update_data = post.model_dump(exclude_unset=True)
+		stored_post.update(update_data)
+		return stored_post
+
+
+	@app.delete(
+		"/posts/{post_id}",
+		status_code=status.HTTP_204_NO_CONTENT,
+		tags=["posts"],
+	)
+	async def delete_post(post_id: int, current_user: CurrentUser):
+		stored_post = posts.get(post_id)
+		if stored_post is None:
+			raise HTTPException(status_code=404, detail="Post not found")
+		if stored_post["author"] != current_user["username"]:
+			raise HTTPException(status_code=403, detail="Not allowed to delete this post")
+		del posts[post_id]
+		for comment_id in [
+			comment_id
+			for comment_id, comment in comments.items()
+			if comment["post_id"] == post_id
+		]:
+			del comments[comment_id]
+
+
+	@app.get(
+		"/posts/{post_id}/comments",
+		response_model=list[CommentPublic],
+		tags=["comments"],
+	)
+	async def list_comments(post_id: int):
+		if post_id not in posts:
+			raise HTTPException(status_code=404, detail="Post not found")
+		return [comment for comment in comments.values() if comment["post_id"] == post_id]
+
+
+	@app.post(
+		"/posts/{post_id}/comments",
+		response_model=CommentPublic,
+		status_code=status.HTTP_201_CREATED,
+		tags=["comments"],
+	)
+	async def create_comment(
+		post_id: int,
+		comment: CommentCreate,
+		current_user: CurrentUser,
+	):
+		global next_comment_id
+		if post_id not in posts:
+			raise HTTPException(status_code=404, detail="Post not found")
+		stored_comment = {
+			"id": next_comment_id,
+			"post_id": post_id,
+			"content": comment.content,
+			"author": current_user["username"],
+			"created_at": datetime.now(timezone.utc),
+		}
+		comments[next_comment_id] = stored_comment
+		next_comment_id += 1
+		return stored_comment
+
+
+	@app.delete(
+		"/comments/{comment_id}",
+		status_code=status.HTTP_204_NO_CONTENT,
+		tags=["comments"],
+	)
+	async def delete_comment(comment_id: int, current_user: CurrentUser):
+		comment = comments.get(comment_id)
+		if comment is None:
+			raise HTTPException(status_code=404, detail="Comment not found")
+		post = posts.get(comment["post_id"])
+		is_comment_author = comment["author"] == current_user["username"]
+		is_post_author = post is not None and post["author"] == current_user["username"]
+		if not is_comment_author and not is_post_author:
+			raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
+		del comments[comment_id]
+
+
+3. How to run and use it
+-------------------------
+
+Set a development secret and start the documented development server:
+
+	$env:BLOG_SECRET_KEY = "replace-this-with-a-long-random-secret"
+	fastapi dev main.py
+
+Open `http://127.0.0.1:8000/docs` and follow this sequence:
+
+1. `POST /users` with `{"username": "alice", "password": "correct horse battery staple"}`.
+2. Authorize in Swagger UI, or call `POST /token` with form fields `username`
+   and `password`.
+3. Copy the returned bearer token into the Authorize dialog.
+4. Create a post with `POST /posts`.
+5. Read it with `GET /posts/{post_id}` and search with
+   `GET /posts?q=fastapi&limit=10`.
+6. Add a comment with `POST /posts/{post_id}/comments`.
+7. Try editing the post with another user to observe the `403` authorization
+   response.
+
+Example token request outside Swagger UI:
+
+	curl -X POST http://127.0.0.1:8000/token \
+	  -H "Content-Type: application/x-www-form-urlencoded" \
+	  -d "username=alice&password=correct horse battery staple"
+
+Example authenticated post request:
+
+	curl -X POST http://127.0.0.1:8000/posts \
+	  -H "Authorization: Bearer YOUR_TOKEN" \
+	  -H "Content-Type: application/json" \
+	  -d '{"title":"Learning FastAPI","content":"Types become API contracts."}'
+
+4. How the documentation informed the design
+----------------------------------------------
+
+Authentication
+~~~~~~~~~~~~~~
+
+The docs use `OAuth2PasswordBearer(tokenUrl="token")` as a callable
+dependency. That is why the example does not manually parse the Authorization
+header in every route. `get_current_user` decodes the JWT, validates its
+subject, loads the user, and raises a 401 with the documented
+`WWW-Authenticate: Bearer` header when credentials are invalid.
+
+The docs also explicitly use `pwdlib`'s recommended password hashing and PyJWT.
+The example follows that approach and adds an expiration claim. The secret key
+must come from configuration in a real deployment. JWT payloads are signed, not
+encrypted, so the application must not put secrets in them.
+
+Models and responses
+~~~~~~~~~~~~~~~~~~~~
+
+The docs recommend separate models for input, stored data, and public output.
+The example uses `UserCreate` and `UserPublic` so the password is accepted only
+on registration and can never appear in the response model. The same principle
+keeps internal storage fields out of `PostPublic` and `CommentPublic`.
+
+CRUD and updates
+~~~~~~~~~~~~~~~~
+
+The SQLModel tutorial demonstrates CRUD with `POST`, `GET`, `PATCH`, and
+`DELETE`, plus 404 errors for missing records. The example preserves those
+semantics with dictionaries. `PUT` receives the complete `PostCreate` shape;
+`PATCH` uses an all-optional `PostUpdate` model and `exclude_unset=True`, exactly
+the partial-update technique described in the body-updates documentation.
+
+Authorization
+~~~~~~~~~~~~~
+
+The documentation explains authentication and dependency injection, but
+ownership is application policy. This example adds the practical authorization
+rule that only the post author may replace, update, or delete a post, while a
+comment author or the post author may delete a comment. These checks raise
+`HTTPException` with 403, following the error-handling guidance.
+
+Search
+~~~~~~
+
+The query-parameter docs show that typed function parameters become validated
+query parameters. The `q`, `skip`, and bounded `limit` parameters therefore
+provide a minimal search and pagination contract that appears automatically in
+OpenAPI.
+
+Why the first version is in memory
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastAPI does not require a particular database. The docs use SQLModel because
+it is a convenient match, but they also state that other SQL or NoSQL libraries
+are valid. In-memory dictionaries make this exercise runnable immediately. The
+next refactor should replace them with SQLModel tables and a per-request
+`yield`-based `Session` dependency, then move routes into `APIRouter` modules.
+
+5. Recommended verification
+---------------------------
+
+The official testing guide uses `TestClient` and pytest:
+
+	uv add pytest httpx
+
+At minimum, test:
+
+- Registration succeeds and duplicate usernames return 409.
+- Passwords are never present in registration or current-user responses.
+- Invalid credentials return 401.
+- A valid token can create a post and comment.
+- Unauthenticated writes are rejected.
+- Owners can update/delete their posts; other users receive 403.
+- Missing posts and comments return 404.
+- Search matches title/content and respects `skip` and `limit`.
+- Deleting a post also removes its comments.
+
+For a production version, add a real database with migrations, HTTPS, secret
+management, refresh-token or session strategy as appropriate, rate limiting,
+email verification, password reset, and a queue for expensive work. Those are
+application and deployment concerns beyond this focused documentation exercise.
+
+Sources consulted
+-----------------
+
+- Security first steps: https://fastapi.tiangolo.com/tutorial/security/first-steps/
+- Get current user: https://fastapi.tiangolo.com/tutorial/security/get-current-user/
+- OAuth2 JWT: https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/
+- Dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/
+- Request body: https://fastapi.tiangolo.com/tutorial/body/
+- Response models: https://fastapi.tiangolo.com/tutorial/response-model/
+- SQL databases: https://fastapi.tiangolo.com/tutorial/sql-databases/
+- Body updates: https://fastapi.tiangolo.com/tutorial/body-updates/
+- Query parameters: https://fastapi.tiangolo.com/tutorial/query-params/
+- Handling errors: https://fastapi.tiangolo.com/tutorial/handling-errors/
+- Bigger applications: https://fastapi.tiangolo.com/tutorial/bigger-applications/
+- Testing: https://fastapi.tiangolo.com/tutorial/testing/
+
