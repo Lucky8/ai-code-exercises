@@ -1,0 +1,291 @@
+Part 2: Documentation Deep Dive
+
+
+FastAPI Practical Notes: WebSockets, Security, and Depends
+===========================================================
+
+These notes turn three related documentation areas into implementation guidance
+for a task-manager API. Read them while building small features, then verify the
+behavior with the interactive docs or automated tests.
+
+1. WebSockets: core concepts and why they matter
+------------------------------------------------
+
+What a WebSocket is
+~~~~~~~~~~~~~~~~~~~
+
+A normal HTTP endpoint handles a request and returns a response. A WebSocket
+starts with a connection handshake and then keeps one connection open so the
+client and server can both send messages whenever they need to. This is useful
+for live behavior where polling would be slow or wasteful.
+
+Good uses include:
+
+- Live task updates when another user creates or changes a task.
+- Notifications, chat, presence indicators, and progress updates.
+- A dashboard that should update without repeatedly requesting the same data.
+
+It is usually unnecessary for ordinary CRUD operations. Use regular HTTP
+endpoints for create, read, update, and delete requests unless the client needs
+continuous, low-latency updates.
+
+The connection lifecycle
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastAPI exposes a `WebSocket` object from Starlette. A typical endpoint has
+these stages:
+
+1. Register the route with `@app.websocket("/ws")`.
+2. Accept the handshake with `await websocket.accept()`.
+3. Receive messages with `receive_text()`, `receive_bytes()`, or
+	 `receive_json()`.
+4. Send messages with `send_text()`, `send_bytes()`, or `send_json()`.
+5. Close deliberately, or handle a client disconnect.
+
+The endpoint normally runs an async loop because one connection can carry many
+messages:
+
+		@app.websocket("/tasks/ws")
+		async def task_updates(websocket: WebSocket):
+				await websocket.accept()
+				try:
+						while True:
+								message = await websocket.receive_json()
+								await websocket.send_json({"received": message})
+				except WebSocketDisconnect:
+						pass
+
+Why `async` matters: receiving and sending wait for network activity. Awaiting
+those operations lets the server handle other connections while this client is
+idle.
+
+Message formats and state
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+WebSockets can carry text, binary, or JSON messages. Define a small message
+contract for a real application, for example `{"type": "task.updated",
+"task_id": 42}`. Validate incoming JSON before using it, and send consistent
+event shapes so clients can evolve independently.
+
+The connection is stateful. Keep track of connected clients when broadcasting:
+
+- A connection manager can accept clients, remove disconnected clients, send a
+	personal message, and broadcast to everyone.
+- Always remove clients when `WebSocketDisconnect` is raised.
+- An in-memory list only works inside one running process. It is not suitable
+	for multiple workers or multiple servers. Use a shared broker such as Redis
+	when broadcasts must cross processes or machines.
+
+Authentication and errors
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastAPI dependencies such as `Depends`, `Security`, `Cookie`, `Header`,
+`Path`, and `Query` also work in WebSocket endpoints. Authenticate before
+accepting, or reject the connection with a WebSocket-specific error. Use
+`WebSocketException`, not `HTTPException`, for a WebSocket policy failure.
+
+For example, a dependency can accept a session cookie or query token and raise
+`WebSocketException(code=status.WS_1008_POLICY_VIOLATION)` when neither exists.
+Do not treat the presence of a token as proof that it is valid: decode or
+validate it against the same identity system used by HTTP endpoints.
+
+Testing and production checklist
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Install the `websockets` package for a simple Python client or use the
+	browser's WebSocket API.
+- Test with `TestClient.websocket_connect()` inside a `with` block.
+- Test valid messages, invalid messages, authentication failures, and a clean
+	disconnect.
+- Plan heartbeat/timeouts, reconnect behavior, authorization, and message
+	ordering before calling it production-ready.
+- Keep the simple HTML client in the documentation as a learning tool, not as
+	the production frontend.
+
+2. Security documentation to prioritize for authentication
+------------------------------------------------------------
+
+Read the security documentation in this order:
+
+1. Security - First Steps
+	 https://fastapi.tiangolo.com/tutorial/security/first-steps/
+	 Learn the OAuth2 password flow, `OAuth2PasswordBearer`, `tokenUrl`, bearer
+	 tokens, and how the security scheme appears in OpenAPI and `/docs`.
+
+2. Get Current User
+	 https://fastapi.tiangolo.com/tutorial/security/get-current-user/
+	 Turn the extracted token into a typed `User` model through a reusable
+	 `get_current_user` dependency. This is the pattern that keeps authentication
+	 code out of individual endpoint bodies.
+
+3. Simple OAuth2 with Password and Bearer
+	 https://fastapi.tiangolo.com/tutorial/security/simple-oauth2/
+	 Understand the login endpoint and token exchange before adding JWT details.
+	 Treat the simplified example as a learning step, not as a complete security
+	 implementation.
+
+4. OAuth2 with Password, password hashing, and JWT bearer tokens
+	 https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/
+	 This is the most relevant tutorial for a first-party task-manager frontend:
+	 hash passwords with a password-hashing library, issue short-lived signed JWTs,
+	 validate the signature and expiration, identify the user, and reject inactive
+	 or unknown users.
+
+5. OAuth2 scopes, when permissions are needed
+	 https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/
+	 Use `Security(..., scopes=[...])` for permissions such as `tasks:read` and
+	 `tasks:write`. Scopes are integrated into OpenAPI, but your application must
+	 still enforce them. They may be unnecessary for a small API with only one
+	 permission level.
+
+Also keep these nearby:
+
+- HTTP Basic Auth: https://fastapi.tiangolo.com/advanced/security/http-basic-auth/
+- Security reference: https://fastapi.tiangolo.com/reference/security/
+- HTTPS deployment guidance:
+	https://fastapi.tiangolo.com/deployment/https/
+- Testing dependencies with overrides:
+	https://fastapi.tiangolo.com/advanced/testing-dependencies/
+
+Authentication is not authorization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Authentication answers: "Who is this caller?"
+
+Authorization answers: "Is this caller allowed to perform this action?"
+
+For the task manager, a sensible dependency chain is:
+
+		bearer token
+				-> get_current_user
+				-> get_current_active_user
+				-> get_task_owner_or_admin
+				-> endpoint
+
+The endpoint should receive a user or authorized task, not repeat token parsing
+and permission checks. Store only password hashes, never plaintext passwords.
+Use HTTPS so credentials and bearer tokens are not exposed in transit. Generate
+a real secret key outside source control, validate JWT claims, use expiration,
+and never copy the documentation's example secret into an application.
+
+3. `Depends`: purpose, appropriate use, and limits
+---------------------------------------------------
+
+What `Depends` does
+~~~~~~~~~~~~~~~~~~~
+
+`Depends` declares a callable that FastAPI should execute before the endpoint.
+Pass the callable itself, without parentheses:
+
+		from typing import Annotated
+		from fastapi import Depends
+
+		async def get_task_store():
+				return task_store
+
+		TaskStore = Annotated[TaskStoreType, Depends(get_task_store)]
+
+		@app.get("/tasks/{task_id}")
+		async def read_task(task_id: int, store: TaskStore):
+				return store.get(task_id)
+
+For each request, FastAPI resolves the dependency's parameters, calls it, and
+injects its return value into the endpoint. Dependency parameters can themselves
+use dependencies, creating a nested dependency graph. Their request parameters
+and validation also appear in the OpenAPI schema.
+
+Use `Depends` when
+~~~~~~~~~~~~~~~~~~
+
+- Logic is shared by multiple endpoints: pagination, filtering, headers, or
+	common request context.
+- A resource should be created or selected per request: a database session,
+	repository, current user, tenant, or external service client.
+- Authentication or authorization should be centralized. A `get_current_user`
+	dependency can depend on an OAuth2 scheme, and an owner check can depend on
+	`get_current_user`.
+- You need test seams. Replace a real repository or identity provider with a
+	fake using `app.dependency_overrides`.
+- Setup must be paired with cleanup. A dependency using `yield` can open a
+	database session before `yield` and close it in `finally` afterward.
+- A check must run but its return value is irrelevant. Put it in the path
+	operation decorator's `dependencies=[Depends(check)]` list.
+
+Use `Security` instead of `Depends` when the dependency needs OAuth2 scopes:
+
+		current_user: Annotated[
+				User, Security(get_current_user, scopes=["tasks:write"])
+		]
+
+`Security` is the security-aware form of dependency declaration. It records
+required scopes in OpenAPI and makes them available through `SecurityScopes`.
+For ordinary authentication without scope requirements, `Depends` is enough.
+
+When not to use `Depends`
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Do not use it for ordinary local function calls. Call a helper directly when
+	the current function already has all the values it needs.
+- Do not hide core business decisions in a dependency merely to shorten an
+	endpoint. Dependencies are best for reusable request boundaries and
+	cross-cutting concerns; task state transitions should remain easy to follow.
+- Do not use it to replace a service or repository architecture. A dependency
+	can provide a service, but the service should still own domain behavior.
+- Do not call the dependency yourself inside the endpoint. `Depends(factory)`
+	is a declaration; `factory()` is a normal Python call with different behavior.
+- Do not add dependencies everywhere by habit. Extra indirection makes small,
+	one-off behavior harder to trace and test.
+- Do not assume `Depends` authenticates anything by itself. It only wires a
+	callable. The callable must actually validate credentials, expiration,
+	identity, and permissions.
+
+Useful details
+~~~~~~~~~~~~~~
+
+- `Depends(dependency, use_cache=True)` caches the result for the current
+	request by default. Use `use_cache=False` only when repeated fresh values are
+	intentional.
+- Both `def` and `async def` dependencies are supported. Choose based on the
+	work performed, especially whether it waits on async I/O.
+- Prefer `Annotated[Type, Depends(...)]` to preserve useful type information in
+	editors and static checking.
+- For a `yield` dependency, `scope="function"` closes the resource after the
+	endpoint returns but before the response is sent; `scope="request"` closes it
+	after the response. Choose based on whether cleanup needs the response phase.
+
+Decision guide for the task manager
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Ask these questions in order:
+
+1. Is this a normal calculation with values already in hand? Call a helper.
+2. Is this shared request setup, validation, resource access, or identity?
+	 Create a dependency and use `Depends`.
+3. Does it require OAuth2 permission scopes? Use `Security`.
+4. Does it need cleanup? Use a dependency with `yield` and `finally`.
+5. Is it only a side-effecting check whose result is unused? Put it in the
+	 decorator's `dependencies` list.
+
+Practical exercise
+~~~~~~~~~~~~~~~~~~
+
+Add a `/tasks/ws` endpoint that broadcasts `task.created` events. Require the
+same bearer-token validation used by HTTP endpoints, inject the connection
+manager with `Depends`, and remove clients on `WebSocketDisconnect`. Then write
+one WebSocket test and override the connection manager with a small fake. This
+single exercise connects all three topics without making `Depends` responsible
+for the WebSocket message loop itself.
+
+Sources consulted
+-----------------
+
+- WebSockets: https://fastapi.tiangolo.com/advanced/websockets/
+- Security: https://fastapi.tiangolo.com/tutorial/security/
+- Security first steps: https://fastapi.tiangolo.com/tutorial/security/first-steps/
+- Get current user: https://fastapi.tiangolo.com/tutorial/security/get-current-user/
+- OAuth2 and JWT: https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/
+- OAuth2 scopes: https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/
+- Dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/
+- Depends reference: https://fastapi.tiangolo.com/reference/dependencies/
+- Testing WebSockets: https://fastapi.tiangolo.com/advanced/testing-websockets/
+

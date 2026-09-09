@@ -1,0 +1,480 @@
+Part 3: Concept to Code Translation
+
+
+FastAPI Reference Guide: From Concepts to Code
+===============================================
+
+The examples below use a task-manager API. They are intentionally small so
+each pattern can be copied into a practice project and then expanded.
+
+1. Dependency injection patterns
+--------------------------------
+
+What dependency injection means
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An endpoint declares what it needs, and FastAPI resolves that requirement before
+calling the endpoint. A dependency is a callable: usually a function, but it
+can also be a class or another callable object. FastAPI reads its parameters,
+gets values from the request, validates them, calls it, and injects its result.
+
+Use `Annotated` so the injected value keeps useful type information:
+
+	from typing import Annotated
+	from fastapi import Depends, FastAPI
+
+	app = FastAPI()
+
+	async def get_request_label() -> str:
+		return "task-api"
+
+	RequestLabel = Annotated[str, Depends(get_request_label)]
+
+	@app.get("/about")
+	async def about(label: RequestLabel):
+		return {"service": label}
+
+The dependency is passed to `Depends` without parentheses. FastAPI calls it;
+the endpoint should not call it again.
+
+Pattern A: shared query parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use a function dependency when several list endpoints need the same filtering
+and pagination rules.
+
+	from typing import Annotated
+	from fastapi import Depends, FastAPI
+
+	app = FastAPI()
+
+	async def common_parameters(
+		q: str | None = None,
+		skip: int = 0,
+		limit: int = 100,
+	):
+		return {"q": q, "skip": skip, "limit": limit}
+
+	CommonParams = Annotated[dict, Depends(common_parameters)]
+
+	@app.get("/tasks/")
+	async def list_tasks(params: CommonParams):
+		return task_store.search(**params)
+
+	@app.get("/users/{user_id}/tasks")
+	async def list_user_tasks(user_id: int, params: CommonParams):
+		return task_store.search(owner_id=user_id, **params)
+
+Practical effect: validation, OpenAPI parameters, and the shared parsing logic
+are defined once.
+
+Pattern B: a typed class dependency
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use a class when the dependency represents a structured request context or a
+small reusable object rather than an unrelated collection of values.
+
+	from typing import Annotated
+	from fastapi import Depends
+
+	class TaskFilters:
+		def __init__(
+			self,
+			status: str | None = None,
+			assigned_to: int | None = None,
+		):
+			self.status = status
+			self.assigned_to = assigned_to
+
+	Filters = Annotated[TaskFilters, Depends()]
+
+	@app.get("/tasks/search")
+	async def search_tasks(filters: Filters):
+		return task_store.search(
+			status=filters.status,
+			assigned_to=filters.assigned_to,
+		)
+
+`Depends()` with no argument is the documented shortcut when the type itself
+is the class FastAPI should call. The explicit form,
+`Depends(TaskFilters)`, is also valid and can be clearer to new readers.
+
+Pattern C: a sub-dependency chain
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use nested dependencies when one concern builds on another. This is especially
+useful for authentication and authorization.
+
+	from typing import Annotated
+	from fastapi import Depends, HTTPException
+
+	async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+		user = await user_service.decode_and_load(token)
+		if user is None:
+			raise HTTPException(status_code=401, detail="Invalid credentials")
+		return user
+
+	CurrentUser = Annotated[User, Depends(get_current_user)]
+
+	async def get_task_for_edit(
+		task_id: int,
+		current_user: CurrentUser,
+	) -> Task:
+		task = await task_store.get(task_id)
+		if task is None:
+			raise HTTPException(status_code=404, detail="Task not found")
+		if task.owner_id != current_user.id and not current_user.is_admin:
+			raise HTTPException(status_code=403, detail="Not allowed")
+		return task
+
+	EditableTask = Annotated[Task, Depends(get_task_for_edit)]
+
+	@app.patch("/tasks/{task_id}")
+	async def update_task(task: EditableTask, changes: TaskUpdate):
+		return await task_store.update(task, changes)
+
+FastAPI solves `get_current_user` before `get_task_for_edit`, and injects the
+results at each level. The endpoint stays focused on the update operation.
+
+Pattern D: resource lifecycle with `yield`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use a `yield` dependency for resources that must be cleaned up, such as a
+database session. Code before `yield` prepares the resource; code after it
+performs cleanup.
+
+	async def get_db():
+		db = DatabaseSession()
+		try:
+			yield db
+		finally:
+			await db.close()
+
+	Database = Annotated[DatabaseSession, Depends(get_db)]
+
+	@app.get("/tasks/{task_id}")
+	async def get_task(task_id: int, db: Database):
+		return await db.tasks.get(task_id)
+
+FastAPI runs the cleanup even when request handling raises an exception. Keep
+the dependency to one `yield`; use `scope="function"` when cleanup must happen
+after the endpoint returns but before the response is sent. The default request
+scope cleans up after the response is sent.
+
+Pattern E: a check whose return value is unused
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the decorator's `dependencies` list when a dependency should run but its
+result should not become an endpoint parameter.
+
+	async def verify_internal_token(x_internal_token: str = Header()):
+		if x_internal_token != expected_token:
+			raise HTTPException(status_code=400, detail="Invalid internal token")
+
+	@app.get(
+		"/internal/tasks",
+		dependencies=[Depends(verify_internal_token)],
+	)
+	async def internal_tasks():
+		return await task_store.all()
+
+This avoids unused endpoint parameters. For authentication, prefer FastAPI's
+integrated security utilities instead of inventing header checks.
+
+Pattern F: application-wide or router-wide checks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use global dependencies for a requirement that truly applies to every route:
+
+	app = FastAPI(dependencies=[Depends(verify_request_id)])
+
+For a subset of routes, attach dependencies to an `APIRouter` or to each
+path-operation decorator. Router-level checks are useful for an admin router;
+application-wide checks are useful for infrastructure requirements such as a
+request ID. Avoid making a dependency global when public routes should remain
+public.
+
+Pattern G: test overrides
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Dependencies create a clean test seam. Replace a production repository with an
+in-memory one for a test:
+
+	async def get_task_store():
+		return production_store
+
+	async def fake_task_store():
+		return InMemoryTaskStore()
+
+	app.dependency_overrides[get_task_store] = fake_task_store
+	try:
+		response = client.get("/tasks/")
+		assert response.status_code == 200
+	finally:
+		app.dependency_overrides.clear()
+
+2. Path operation decorators
+----------------------------
+
+What the term means
+~~~~~~~~~~~~~~~~~~~
+
+A path operation is a function that handles a request at a particular URL path
+and HTTP method. A path operation decorator registers that function with
+FastAPI and configures its OpenAPI metadata.
+
+The common decorators are:
+
+- `@app.get`: retrieve a resource without changing server state.
+- `@app.post`: create a resource or trigger an action.
+- `@app.put`: replace a resource at a known URL.
+- `@app.patch`: partially update a resource.
+- `@app.delete`: remove a resource.
+- `@app.options`: describe communication options, usually for infrastructure
+  or CORS-related behavior.
+- `@app.head`: return headers without a response body, useful for metadata or
+  existence checks.
+
+FastAPI also provides the same decorators on `APIRouter`, which is preferred
+when splitting a larger application into modules. `@app.websocket` is separate:
+it registers a WebSocket endpoint rather than an HTTP path operation.
+
+GET: retrieve
+~~~~~~~~~~~~~
+
+	@app.get("/tasks/{task_id}", response_model=TaskRead)
+	async def read_task(task_id: int):
+		task = await task_store.get(task_id)
+		if task is None:
+			raise HTTPException(status_code=404, detail="Task not found")
+		return task
+
+Use `get` for safe reads. Path and query parameters are declared in the
+function signature and automatically validated and documented.
+
+POST: create or trigger
+~~~~~~~~~~~~~~~~~~~~~~~
+
+	@app.post(
+		"/tasks",
+		response_model=TaskRead,
+		status_code=status.HTTP_201_CREATED,
+		tags=["tasks"],
+	)
+	async def create_task(task: TaskCreate):
+		return await task_store.create(task)
+
+Use `post` when the server creates a new resource or performs an action that is
+not naturally idempotent. `201 Created` communicates that a resource was made.
+
+PUT: replace
+~~~~~~~~~~~~
+
+	@app.put("/tasks/{task_id}", response_model=TaskRead)
+	async def replace_task(task_id: int, task: TaskReplace):
+		return await task_store.replace(task_id, task)
+
+Use `put` when the request represents the complete replacement at a known URI.
+If the client sends the same replacement twice, the result should normally be
+the same.
+
+PATCH: partial update
+~~~~~~~~~~~~~~~~~~~~~
+
+	@app.patch("/tasks/{task_id}", response_model=TaskRead)
+	async def patch_task(task_id: int, changes: TaskUpdate):
+		return await task_store.update(task_id, changes)
+
+Use `patch` when fields are optional and the client is changing only part of a
+task, such as its title, status, or assignee.
+
+DELETE: remove
+~~~~~~~~~~~~~~
+
+	@app.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+	async def delete_task(task_id: int):
+		await task_store.delete(task_id)
+
+Use `delete` for removal. A `204` response has no response body; return `None`
+or otherwise ensure the response matches that status code.
+
+OPTIONS and HEAD
+~~~~~~~~~~~~~~~~
+
+	@app.options("/tasks")
+	async def task_options():
+		return Response(headers={"Allow": "GET, POST, OPTIONS"})
+
+	@app.head("/tasks/{task_id}")
+	async def task_exists(task_id: int):
+		if not await task_store.exists(task_id):
+			raise HTTPException(status_code=404, detail="Task not found")
+
+Use these only when your client, proxy, or protocol contract needs them. CORS
+preflight is commonly handled by `CORSMiddleware`, so do not add a manual
+OPTIONS route without a reason.
+
+Decorator configuration
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The decorator can describe behavior without changing the Python function:
+
+	@app.get(
+		"/tasks",
+		response_model=list[TaskRead],
+		status_code=status.HTTP_200_OK,
+		tags=["tasks"],
+		summary="List tasks",
+		response_description="Tasks visible to the current user",
+		deprecated=False,
+	)
+	async def list_tasks():
+		"""Return tasks the current user can see."""
+		return await task_store.visible_to_current_user()
+
+Important options include `response_model` for output filtering and schema
+generation, `status_code` for the intended HTTP result, `tags` for grouping in
+the docs, `summary` and `description` for readable API documentation,
+`response_description` for the response entry, `dependencies` for checks whose
+return values are unused, and `deprecated=True` when an old route remains
+available during migration.
+
+3. Background tasks
+-------------------
+
+How they work
+~~~~~~~~~~~~~
+
+Declare a parameter typed as `BackgroundTasks`. FastAPI creates the object for
+the request. Register a normal or async function with `.add_task()` and return
+the response. FastAPI runs the task after the response has been sent.
+
+The task function is not called immediately. Pass the function object and then
+its positional and keyword arguments:
+
+	background_tasks.add_task(
+		task_function,
+		positional_value,
+		keyword=value,
+	)
+
+Example: send an email after creating a task
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The email client below is illustrative. In a real application, use an email
+provider or SMTP client configured from environment variables, and do not put
+credentials in source code.
+
+	from fastapi import BackgroundTasks, FastAPI, status
+	from pydantic import BaseModel, EmailStr
+
+	app = FastAPI()
+
+	class TaskCreate(BaseModel):
+		title: str
+		owner_email: EmailStr
+
+	class TaskRead(BaseModel):
+		id: int
+		title: str
+		owner_email: EmailStr
+
+	def send_task_created_email(
+		recipient: str,
+		task_id: int,
+		title: str,
+	) -> None:
+		email_client.send(
+			to=recipient,
+			subject="Task created",
+			body=f"Task {task_id} was created: {title}",
+		)
+
+	@app.post(
+		"/tasks",
+		response_model=TaskRead,
+		status_code=status.HTTP_201_CREATED,
+	)
+	async def create_task(
+		task: TaskCreate,
+		background_tasks: BackgroundTasks,
+	):
+		created = await task_store.create(task)
+		background_tasks.add_task(
+			send_task_created_email,
+			str(created.owner_email),
+			created.id,
+			created.title,
+		)
+		return created
+
+The client receives the created task without waiting for the email server. The
+task is scheduled only after the endpoint has successfully produced a response.
+If creating the task fails, no success email should be queued.
+
+Adding tasks from dependencies
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastAPI can inject the same `BackgroundTasks` object into dependencies and
+sub-dependencies. Tasks registered at those levels are merged with tasks added
+by the endpoint and run afterward:
+
+	def audit_task_creation(
+		background_tasks: BackgroundTasks,
+	) -> None:
+		background_tasks.add_task(write_audit_log, "task creation requested")
+
+	@app.post("/tasks", dependencies=[Depends(audit_task_creation)])
+	async def create_task(task: TaskCreate):
+		return await task_store.create(task)
+
+This is useful for shared audit logging or notification rules. Use an ordinary
+endpoint parameter when the endpoint needs the dependency's return value; use
+the decorator `dependencies` list when it only needs the side effect.
+
+Choosing the right tool
+~~~~~~~~~~~~~~~~~~~~~~~
+
+`BackgroundTasks` is appropriate for small, non-critical work in the same
+FastAPI process, such as sending a notification or writing a small audit log.
+It is not a durable job queue:
+
+- A process crash can lose a task.
+- The task runs in the application process and is not automatically distributed
+  across workers or machines.
+- Failures need explicit logging and handling.
+- Long-running or CPU-heavy work can compete with the API process.
+
+For important email delivery, retries, scheduling, heavy computation, or work
+that must survive restarts, use a queue and worker system such as Celery with
+RabbitMQ or Redis. Return `202 Accepted` when the API has accepted work for
+later processing rather than claiming it has completed.
+
+Reference checklist
+~~~~~~~~~~~~~~~~~~~
+
+When translating a FastAPI concept into code, ask:
+
+1. Is the callable shared request setup, resource lifecycle, authorization, or
+   test configuration? It may be a dependency.
+2. Is the function handling an HTTP method and path? Register it with the
+   decorator matching the operation's semantics.
+3. Is work useful but not required before the client response? Consider
+   `BackgroundTasks`.
+4. Does the work need durability, retries, or another process? Use a real job
+   queue instead.
+5. Do the decorator's response model, status code, tags, and descriptions match
+   the contract shown in `/docs`?
+
+Sources consulted
+-----------------
+
+- Dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/
+- Classes as dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/classes-as-dependencies/
+- Sub-dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/sub-dependencies/
+- Dependencies in decorators: https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-in-path-operation-decorators/
+- Global dependencies: https://fastapi.tiangolo.com/tutorial/dependencies/global-dependencies/
+- Dependencies with yield: https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/
+- Path operation configuration: https://fastapi.tiangolo.com/tutorial/path-operation-configuration/
+- Background tasks: https://fastapi.tiangolo.com/tutorial/background-tasks/
+
