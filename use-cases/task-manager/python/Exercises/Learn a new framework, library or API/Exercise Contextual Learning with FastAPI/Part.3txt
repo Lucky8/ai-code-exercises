@@ -1,0 +1,45 @@
+Part 3: Applied Contextual Learning
+
+Build a simple FastAPI application that authenticates users with JWT bearer tokens.
+
+Files:
+
+- `auth_api.py`: the FastAPI application.
+- `test_auth_api.py`: focused tests for login and protected routes.
+- `requirements.txt`: application and test dependencies.
+
+PATH TO FILES:
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Contextual Learning with FastAPI\auth_api.py
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Contextual Learning with FastAPI\test_auth_api.py
+use-cases\task-manager\python\Exercises\Learn a new framework, library or API\Exercise Contextual Learning with FastAPI\requirements.txt
+
+1. What the application does
+
+- `POST /token` accepts OAuth2 password-form fields named `username` and `password`.
+- Valid credentials for the demo user `alice` and password `secret123` return a signed JWT.
+- `GET /users/me` requires an `Authorization: Bearer <token>` header and returns the current user.
+- Missing, invalid, unknown, or expired tokens return `401 Unauthorized`.
+
+2. Run the application
+
+From this directory, create a virtual environment and install the dependencies:
+
+	python -m venv .venv
+	.venv\\Scripts\\Activate.ps1
+	pip install -r requirements.txt
+
+Start the development server:
+
+	uvicorn auth_api:app --reload
+
+The interactive OAuth2 form is available at `http://127.0.0.1:8000/docs`. The demo credentials are
+`alice` and `secret123`. Use a real secret configured through `JWT_SECRET_KEY` outside this exercise;
+the fallback secret in the sample is only for local learning.
+
+3. Run the tests
+
+	python -m pytest test_auth_api.py -v
+
+The tests verify successful login, access to the protected endpoint, invalid credentials, missing
+credentials, and expired-token rejection.
+
