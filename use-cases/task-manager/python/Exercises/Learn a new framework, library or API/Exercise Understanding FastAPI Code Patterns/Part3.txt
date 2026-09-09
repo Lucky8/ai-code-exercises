@@ -1,2 +1,294 @@
 Part 3: Simplifying Complex Concepts
 
+## 1. `asynccontextmanager` and `lifespan`
+
+### Simple explanation
+
+`@asynccontextmanager` lets one function describe two phases:
+
+- What happens before the application starts
+- What happens after the application shuts down
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Application startup")
+    yield
+    print("Application shutdown")
+```
+
+The `yield` divides the function:
+
+```text
+Before yield  -> startup
+yield         -> application runs
+After yield   -> shutdown
+```
+
+FastAPI uses it like this:
+
+```python
+app = FastAPI(lifespan=lifespan)
+```
+
+### What problem does it solve?
+
+Applications often need to prepare shared resources, such as:
+
+- Database connection pools
+- Cache clients
+- Machine-learning models
+- Background workers
+- External service connections
+
+They also need to clean those resources up when the application stops.
+
+A simple example:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.cache = await connect_to_cache()
+
+    yield
+
+    await app.state.cache.close()
+```
+
+This ensures the cache is initialized once at startup and closed during shutdown, rather than being repeatedly created inside individual requests.
+
+---
+
+## 2. `TimingMiddleware`
+
+Middleware is code that runs around every request.
+
+This middleware:
+
+```python
+class TimingMiddleware:
+    async def __call__(self, request: Request, call_next: Callable) -> Response:
+        start_time = datetime.utcnow()
+
+        response = await call_next(request)
+
+        process_time = (
+            datetime.utcnow() - start_time
+        ).total_seconds() * 1000
+
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+```
+
+works like this:
+
+```text
+Request arrives
+    |
+    v
+Start timer
+    |
+    v
+Run the actual endpoint
+    |
+    v
+Stop timer
+    |
+    v
+Add timing header
+    |
+    v
+Return response
+```
+
+It is similar to wrapping a function:
+
+```python
+def timed_function():
+    start = time()
+    result = do_work()
+    duration = time() - start
+    return result, duration
+```
+
+The important line is:
+
+```python
+response = await call_next(request)
+```
+
+`call_next` means “continue processing this request.” It eventually invokes the matching route handler.
+
+### Registering the middleware
+
+```python
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(TimingMiddleware)
+```
+
+After a request, the response might contain:
+
+```http
+HTTP/1.1 200 OK
+X-Process-Time: 12.47
+```
+
+The value represents approximately how many milliseconds the application took to process the request.
+
+### Common uses
+
+Middleware is useful for behavior that applies broadly:
+
+- Request timing
+- Logging
+- CORS
+- Adding security headers
+- Request IDs
+- Error monitoring
+
+A middleware usually should not contain business logic specific to users or products. That belongs in services or endpoint code.
+
+---
+
+## 3. JWT Authentication in Simple Terms
+
+JWT authentication works like a signed pass.
+
+### Login
+
+The client sends credentials to:
+
+```text
+POST /token
+```
+
+The login endpoint:
+
+1. Looks up the user by username.
+2. Verifies the password.
+3. Creates a JWT containing the username.
+4. Sets an expiration time.
+5. Returns the token.
+
+Conceptually, the token contains:
+
+```json
+{
+  "sub": "alice",
+  "exp": "expiration time"
+}
+```
+
+The server signs it with:
+
+```python
+jwt.encode(to_encode, "SECRET_KEY", algorithm="HS256")
+```
+
+The client receives something like:
+
+```json
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+The client then stores the token and sends it with future requests:
+
+```http
+Authorization: Bearer eyJ...
+```
+
+### Accessing a protected endpoint
+
+For:
+
+```text
+GET /admin/users/
+```
+
+FastAPI runs:
+
+```python
+get_current_user(...)
+```
+
+That function:
+
+1. Extracts the bearer token from the request.
+2. Decodes the JWT using the server's secret key.
+3. Checks that the token is valid and not expired.
+4. Reads the username from the `sub` claim.
+5. Looks up that user in the database.
+6. Returns the user object.
+
+If anything fails, the request receives:
+
+```text
+401 Unauthorized
+```
+
+### Checking administrator access
+
+After authentication, the decorator checks authorization:
+
+```python
+@requires_role("admin")
+```
+
+It verifies:
+
+```python
+current_user.is_superuser
+```
+
+The outcomes are:
+
+```text
+No valid token              -> 401 Unauthorized
+Valid user, not an admin    -> 403 Forbidden
+Valid admin user            -> Endpoint runs
+```
+
+Authentication asks:
+
+> Who is this user?
+
+Authorization asks:
+
+> Is this user allowed to perform this action?
+
+### Simplified analogy
+
+```text
+Login:
+    Username and password
+        -> Server gives signed pass
+
+Normal protected request:
+    Client presents signed pass
+        -> Server verifies pass
+        -> Server identifies user
+
+Admin request:
+    Server checks user's privileges
+        -> Admin: allow request
+        -> Non-admin: reject request
+```
+
+### Important practical details
+
+A JWT is signed, not encrypted. The token payload should not contain sensitive information because clients can usually decode it.
+
+In production:
+
+- Store `SECRET_KEY` in environment configuration.
+- Use a strong, randomly generated secret.
+- Use a real password hashing algorithm.
+- Do not return or expose `hashed_password`.
+- Always enforce token expiration.
+- Use HTTPS so tokens are not intercepted.
+- Consider refresh tokens for long-lived sessions.
+
+In this sample, `verify_password` always returns `True`, so it is only a placeholder for real password verification logic.
